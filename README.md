@@ -43,7 +43,7 @@ console.log(compactSchema(schema));
 
 单一入口 `json-analyze`。**无子命令**时输出 **Overview**（多 section 体检报告 + 各段底部 drill-down 命令）；深度模式用子命令。
 
-子命令：`analyze` | `filter` | `summary` | `get` | `explore` | `search` | `compare` | `help`
+子命令：`analyze` | `filter` | `summary` | `get` | `explore` | `search` | `compare` | `diff` | `help`
 
 #### 默认 Overview
 

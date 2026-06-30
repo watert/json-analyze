@@ -406,6 +406,9 @@ json-analyze get 'users[].name' data.json
 cat data.json | json-analyze get 'items[].id' --limit 20
 json-analyze get '*.models[?key~deepseek].cost.input' data.json  # v2.2: 跨节点过滤
 
+# diff (v2.7): 双文件对比，默认 50KB + diff-digest
+json-analyze diff fileA.json fileB.json --path-prefix root.entities --dict-key-only
+
 # compare (v2.2): 多路径对比
 json-analyze compare path1 path2 path3 data.json
 json-analyze compare path1 path2 data.json --fields 'input,output'
