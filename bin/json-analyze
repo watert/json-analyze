@@ -1,5 +1,5 @@
 #!/usr/bin/env bun
-// json-analyze CLI: analyze | filter | summary | get | explore | search | compare | help
+// json-analyze CLI: analyze | filter | summary | get | explore | search | compare | diff | help
 // 新增: --jsonl flag 启用 JSONL 流式模式
 import minimist from "minimist";
 import { analyzeJSON } from "../src/analyzer.js";
@@ -39,10 +39,11 @@ import {
   aggregateAnalyzeJSONL,
   type JSONLSource,
 } from "../src/jsonl.js";
+import { diffJSON } from "../src/diff.js";
 
 // ---------- 通用 ----------
 
-const SUB_COMMANDS = ["analyze", "filter", "summary", "get", "explore", "search", "compare", "help"] as const;
+const SUB_COMMANDS = ["analyze", "filter", "summary", "get", "explore", "search", "compare", "diff", "help"] as const;
 const KNOWN_COMMANDS = new Set<string>(SUB_COMMANDS);
 type SubCommand = (typeof SUB_COMMANDS)[number];
 
@@ -71,6 +72,7 @@ Commands:
   explore    探索字段的值分布 / 基数 / key 列表
   search     递归搜索 key / value (grep for JSON)
   compare    多路径取值对比, 输出 markdown table
+  diff       双 JSON 文件对比 (AI Friendly, 50KB digest)
   help       显示帮助
 
 JSONL 模式:
@@ -222,6 +224,26 @@ Options:
     'vercel.models["xiaomi/mimo-v2.5"].cost' \\
     'openrouter.models["stepfun/step-3.5-flash"].cost' \\
     data.json --limit 1
+`);
+    return;
+  }
+  if (cmd === "diff") {
+    console.log(`Usage: json-analyze diff <fileA> <fileB> [options]
+
+Options:
+  -f, --format          md | md-flat | json (默认 md)
+      --labels          列名, 逗号分隔 (默认 basename)
+      --path-prefix     只 diff 子树 (默认 root)
+      --max-detail-bytes  默认 51200
+      --ignore-paths    逗号 glob; 空串表示不忽略
+      --dict-key-only   record 只报 key 增删
+      --array-mode      index | id (默认 id)
+      --value-depth     默认 4
+      --max-changes     收集上限, 默认 2000
+  -h, --help
+
+例:
+  json-analyze diff a.json b.json --path-prefix root.entities --dict-key-only
 `);
     return;
   }
@@ -1008,6 +1030,61 @@ async function runCompare(rawArgv: string[]) {
   }
 }
 
+async function runDiff(rawArgv: string[]) {
+  const argv = minimist(rawArgv, {
+    string: ["format", "labels", "path-prefix", "ignore-paths", "array-mode", "left", "right"],
+    boolean: ["help", "dict-key-only", "pretty"],
+    alias: { h: "help", f: "format" },
+    default: {
+      format: "md",
+      "path-prefix": "root",
+      "array-mode": "id",
+      "max-detail-bytes": 51200,
+      "value-depth": 4,
+      "max-changes": 2000,
+    },
+  });
+  if (argv.help) {
+    printHelp("diff");
+    return;
+  }
+
+  let leftPath = argv.left as string | undefined;
+  let rightPath = argv.right as string | undefined;
+  const positional = argv._.map(String);
+  if (!leftPath && positional.length >= 2) {
+    leftPath = positional[0];
+    rightPath = positional[1];
+  }
+  if (!leftPath || !rightPath) throw new Error("diff requires two files: json-analyze diff <fileA> <fileB>");
+
+  const left = await Bun.file(leftPath).json();
+  const right = await Bun.file(rightPath).json();
+
+  const labelStr = argv.labels as string | undefined;
+  const labels = labelStr ? labelStr.split(",").map((s) => s.trim()) : [];
+  const format = argv.format as string;
+  if (!["md", "md-flat", "json"].includes(format)) throw new Error(`unknown format "${format}"`);
+
+  const out = diffJSON(left, right, {
+    leftFile: leftPath,
+    rightFile: rightPath,
+    leftLabel: labels[0],
+    rightLabel: labels[1],
+    format: format as "md" | "md-flat" | "json",
+    pathPrefix: argv["path-prefix"] as string,
+    maxDetailBytes: Number(argv["max-detail-bytes"]) || 51200,
+    ignorePaths: argv["ignore-paths"] as string | undefined,
+    dictKeyOnly: !!argv["dict-key-only"],
+    arrayMode: (argv["array-mode"] as "index" | "id") || "id",
+    valueDepth: Number(argv["value-depth"]) || 4,
+    maxChanges: Number(argv["max-changes"]) || 2000,
+  });
+
+  if (format === "json") outputResult(out, "json", !!argv.pretty);
+  else console.log(out);
+}
+
 /** 从路径末段推断标签，优先用倒数第二个 key（通常是 model id / provider 名） */
 function inferLabel(path: string): string {
   const segs = splitPath(path);
@@ -1045,6 +1122,7 @@ async function main() {
   if (cmd === "explore") return runExplore(rest);
   if (cmd === "search") return runSearch(rest);
   if (cmd === "compare") return runCompare(rest);
+  if (cmd === "diff") return runDiff(rest);
 }
 
 main().catch((e) => {

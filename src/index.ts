@@ -24,6 +24,7 @@ export {
 export type { InputTarget, ResolveInputOptions, ResolveInputResult } from "./input-resolve.js";
 export { readJsonFromTarget } from "./io.js";
 export { mergeAnalyzeSummaries } from "./batch-summary.js";
+export { diffJSON, diffWalk, parseIgnorePaths, DEFAULT_DIFF_IGNORE } from "./diff.js";
 export { splitPath } from "./path-utils.js";
 export {
   parseJSONL,
