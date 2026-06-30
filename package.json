@@ -3,9 +3,7 @@
   "version": "2.3.1",
   "type": "module",
   "main": "src/index.ts",
-  "bin": {
-    "json-analyze": "bin/json-analyze"
-  },
+  "bin": "bin/json-analyze",
   "description": "JSON Schema Analyzer - 将任意 JSON 转换为扁平化 schema 数组",
   "scripts": {
     "check": "bunx tsc --noEmit --project tsconfig.json",
