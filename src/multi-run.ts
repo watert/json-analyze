@@ -1,13 +1,17 @@
 // 多文件批处理: analyze / filter / search / summary
 import { analyzeJSON } from "./analyzer.js";
 import { filterJSON, searchJSON, type FilterOptions, type SearchOptions } from "./filter.js";
+import { filterSchemaByPathPrefix } from "./analyze-detail-budget.js";
 import { renderAnalyzeMarkdown, type AnalyzeMdFormat } from "./format.js";
+import type { GroupedRenderOptions } from "./format-grouped.js";
 import { readJsonFromTarget } from "./io.js";
 import { isStdinTarget, type InputTarget } from "./input-resolve.js";
 import { mergeAnalyzeSummaries } from "./batch-summary.js";
 import { truncateForDisplay } from "./display-truncate.js";
 import { compactSchema, summarizeSchema } from "./summarize.js";
 import type { AnalyzeOptions } from "./types.js";
+
+export type AnalyzeRenderOpts = GroupedRenderOptions & { pathPrefix?: string };
 
 export async function forEachJsonFile(
   targets: InputTarget[],
@@ -36,19 +40,35 @@ export async function runAnalyzeOnTargets(
   analyzeOpts: AnalyzeOptions,
   format: string,
   pretty: boolean,
-  listKeysHandler?: (schema: ReturnType<typeof analyzeJSON>, label: string) => void
+  listKeysHandler?: (schema: ReturnType<typeof analyzeJSON>, label: string) => void,
+  renderOpts?: AnalyzeRenderOpts
 ): Promise<void> {
   const multi = targets.length > 1;
   await forEachJsonFile(targets, mode, (label, data) => {
     const schema = analyzeJSON(data, analyzeOpts);
-    const mdLike = ["md", "md-flat", "tree", "xml"].includes(format);
+    const mdLike = format === "md" || format === "md-flat";
     if (multi && mdLike) console.log(`## ${label}\n`);
     if (listKeysHandler) {
       listKeysHandler(schema, label);
       return;
     }
-    if (mdLike) console.log(renderAnalyzeMarkdown(schema, format as AnalyzeMdFormat));
-    else console.log(JSON.stringify(multi ? { file: label, schema } : schema, null, pretty ? 2 : 0));
+    if (mdLike) {
+      if (renderOpts?.pathPrefix) {
+        console.log(renderAnalyzeMarkdown(filterSchemaByPathPrefix(schema, renderOpts.pathPrefix), "md-flat"));
+        return;
+      }
+      if (format === "md-flat") {
+        console.log(renderAnalyzeMarkdown(schema, "md-flat"));
+        return;
+      }
+      const opts: GroupedRenderOptions = {
+        top: renderOpts?.top ?? 10,
+        sourceLabel: renderOpts?.sourceLabel ?? label,
+        drillFile: renderOpts?.drillFile ?? label,
+        maxDetailBytes: renderOpts?.maxDetailBytes,
+      };
+      console.log(renderAnalyzeMarkdown(schema, "md", opts));
+    } else console.log(JSON.stringify(multi ? { file: label, schema } : schema, null, pretty ? 2 : 0));
     if (multi && mdLike) console.log("");
   });
 }

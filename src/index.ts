@@ -1,7 +1,9 @@
 // JSON Schema Analyzer 入口导出
 export { analyzeJSON } from "./analyzer.js";
 export { getParent } from "./path-utils.js";
-export { renderMarkdown } from "./format.js";
+export { renderMarkdown, renderAnalyzeMarkdown } from "./format.js";
+export { renderGroupedFlatMarkdown } from "./format-grouped.js";
+export { renderAnalyzePreamble, pickHeaviestPaths } from "./analyze-preamble.js";
 export { filterJSON, searchJSON } from "./filter.js";
 export { getByPath, readByKey, getClosestKeys } from "./paths.js";
 export { getFieldValues, getPathCardinality, findPathsByType, getObjectKeys } from "./explorer.js";

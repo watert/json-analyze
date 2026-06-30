@@ -13,20 +13,20 @@ describe("renderMarkdown", () => {
     });
     const md = renderMarkdown(schema);
     expect(md).toBe(
-      `**root** — \`object\`
-keys: \`id\`, \`name\`, \`active\`, \`score\`
+      `**root** — object
+keys: id, name, active, score
 
-**root.id** — \`number\`
-sample: \`1024\`
+**root.id** — number
+sample: 1024
 
-**root.name** — \`string\`
-sample: \`"Alice"\`
+**root.name** — string
+sample: "Alice"
 
-**root.active** — \`boolean\`
-sample: \`true\`
+**root.active** — boolean
+sample: true
 
-**root.score** — \`null\`
-sample: \`null\``
+**root.score** — null
+sample: null`
     );
   });
 
@@ -41,23 +41,23 @@ sample: \`null\``
     });
     const md = renderMarkdown(schema);
     expect(md).toBe(
-      `**root** — \`object\`
-keys: \`article\`
+      `**root** — object
+keys: article
 
-**root.article** — \`object\`
-keys: \`title\`, \`body\`, \`createdAt\`, \`updatedAt\`
+**root.article** — object
+keys: title, body, createdAt, updatedAt
 
-**root.article.title** — \`string\`
-sample: \`"Learning Bun"\`
+**root.article.title** — string
+sample: "Learning Bun"
 
-**root.article.body** — \`long-text[171]\`
-length: \`171\`
+**root.article.body** — long-text[171]
+length: 171
 
-**root.article.createdAt** — \`date\`
-sample: \`"2026-03-15T08:30:00Z"\`
+**root.article.createdAt** — date
+sample: "2026-03-15T08:30:00Z"
 
-**root.article.updatedAt** — \`date\`
-sample: \`"2026-06-01"\``
+**root.article.updatedAt** — date
+sample: "2026-06-01"`
     );
   });
 
@@ -72,23 +72,23 @@ sample: \`"2026-06-01"\``
     });
     const md = renderMarkdown(schema);
     expect(md).toBe(
-      `**root** — \`object\`
-keys: \`arr\`
+      `**root** — object
+keys: arr
 
-**root.arr** — \`array[4]\`
-items: \`boolean(1)=true\`, \`number(1)=123\`, \`object(2)\`
+**root.arr** — array[4]
+items: boolean(1)=true, number(1)=123, object(2)
 
-**root.arr[].date** — \`date\`
-sample: \`"2025-04-02"\`
-note: \`present in 2/2 objects\`
+**root.arr[].date** — date
+sample: "2025-04-02"
+note: present in 2/2 objects
 
-**root.arr[].msg** — \`string\`
-sample: \`"hello"\`
-note: \`present in 2/2 objects\`
+**root.arr[].msg** — string
+sample: "hello"
+note: present in 2/2 objects
 
-**root.arr[].foo** — \`string\`
-sample: \`"bar"\`
-note: \`present in 1/2 objects (optional)\``
+**root.arr[].foo** — string
+sample: "bar"
+note: present in 1/2 objects (optional)`
     );
   });
 
@@ -98,15 +98,15 @@ note: \`present in 1/2 objects (optional)\``
     });
     const md = renderMarkdown(schema);
     expect(md).toBe(
-      `**root** — \`object\`
-keys: \`matrix\`
+      `**root** — object
+keys: matrix
 
-**root.matrix** — \`array[3]\`
-items: \`array(3)\`
+**root.matrix** — array[3]
+items: array(3)
 
-**root.matrix[]** — \`array[6]\`
-items: \`number(6)=1, 2, 3\`
-note: \`inner array\``
+**root.matrix[]** — array[6]
+items: number(6)=1, 2, 3
+note: inner array`
     );
   });
 
@@ -120,20 +120,20 @@ note: \`inner array\``
     });
     const md = renderMarkdown(schema);
     expect(md).toBe(
-      `**root** — \`object\`
-keys: \`items\`
+      `**root** — object
+keys: items
 
-**root.items** — \`array[3]\`
-items: \`object(3)\`
+**root.items** — array[3]
+items: object(3)
 
-**root.items[].id** — \`number\`
-sample: \`1\`
-note: \`present in 3/3 objects\`
+**root.items[].id** — number
+sample: 1
+note: present in 3/3 objects
 
-**root.items[].value** — \`mixed\`
-variants: \`string(2)="hello", "world"\`, \`number(1)=42\`
-sample: \`"hello"\`
-note: \`present in 3/3 objects\``
+**root.items[].value** — mixed
+variants: string(2)="hello", "world", number(1)=42
+sample: "hello"
+note: present in 3/3 objects`
     );
   });
 
@@ -144,15 +144,15 @@ note: \`present in 3/3 objects\``
     });
     const md = renderMarkdown(schema);
     expect(md).toBe(
-      `**root** — \`object\`
-keys: \`data\`, \`items\`
+      `**root** — object
+keys: data, items
 
-**root.data** — \`array[0]\`
+**root.data** — array[0]
 items: (empty)
-comment: \`empty array\`
+comment: empty array
 
-**root.items** — \`array[2]\`
-items: \`null(2)\``
+**root.items** — array[2]
+items: null(2)`
     );
   });
 });

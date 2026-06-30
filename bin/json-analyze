@@ -64,7 +64,7 @@ Input (多文件):
 
 Commands:
   (default)  无子命令 → overview；--format json
-  analyze    分析 JSON 结构 (md|md-flat|tree|xml|json)
+  analyze    分析 JSON 结构 (md|md-flat|json)
   filter     按查询条件检索 JSON 内容
   summary    输出 JSON 结构高层摘要
   get        按路径提取数据值
@@ -86,7 +86,7 @@ Run 'json-analyze <command> --help' for command-specific help.
        cat file.jsonl | json-analyze analyze --jsonl [options]
 
 Options:
-  -f, --format   输出格式: md | md-flat | tree | xml | json (默认: md，与 md-flat 同)
+  -f, --format   输出格式: md | md-flat | json (默认: md，紧凑语义 tag)
   -p, --pretty   与 --format json 配合时美化输出
       --jsonl         启用 JSONL 模式 (默认: 当作大数组, 一次性合并 schema)
       --per-line      配合 --jsonl, 改回逐行 schema (高级/超大文件用)
@@ -97,6 +97,9 @@ Options:
       --key-depth      配合 --list-keys 限制深度 (默认: 1, 只列第一层 key)
       --path-glob      配合 --list-keys 限制路径范围, 支持 * 通配
       --fold           配合 --list-keys, 折叠叶子节点只显示 key 数量
+      --top-summary  顶部重量级 path 摘要条数 (默认: 10)
+      --max-detail-bytes  详情区字节上限，超出则大组 record-digest (默认: 51200，至少压 5 组)
+      --path-prefix  只输出该 path 子树 (md-flat)，用于 digest drill
   -h, --help     显示帮助
 
 JSONL 语义:
@@ -426,14 +429,14 @@ async function runOverview(rawArgv: string[]) {
 
 async function runAnalyze(rawArgv: string[]) {
   const argv = minimist(rawArgv, {
-    string: ["format", "path-glob", "root", "glob", "ext", "on-error"],
+    string: ["format", "path-glob", "path-prefix", "root", "glob", "ext", "on-error"],
     boolean: ["help", "pretty", "list-keys", "fold", "jsonl", "per-line", "no-recurse"],
     alias: { h: "help", f: "format", p: "pretty" },
-    default: { format: "md", "max-depth": 32, "max-items": 5000, "max-keys": 500, "key-depth": 1, "max-files": 100, "on-error": "skip" },
+    default: { format: "md", "max-depth": 32, "max-items": 5000, "max-keys": 500, "key-depth": 1, "max-files": 100, "on-error": "skip", "top-summary": 10, "max-detail-bytes": 51200 },
   });
   if (argv.help) { printHelp("analyze"); return; }
   const format = argv.format as string;
-  const analyzeFormats = ["md", "md-flat", "tree", "xml", "json"];
+  const analyzeFormats = ["md", "md-flat", "json"];
   if (!analyzeFormats.includes(format)) throw new Error(`unknown format "${format}", expected ${analyzeFormats.join("|")}`);
   const mdOut = format !== "json";
   const analyzeOpts = {
@@ -450,7 +453,7 @@ async function runAnalyze(rawArgv: string[]) {
       for await (const { line, result: schema } of analyzeJSONL(source, analyzeOpts)) {
         if (format === "md") {
           console.log(`### line ${line}\n`);
-          console.log(renderAnalyzeMarkdown(schema, format as "md" | "md-flat" | "tree" | "xml"));
+          console.log(renderAnalyzeMarkdown(schema, format as "md" | "md-flat"));
           console.log("");
         } else {
           console.log(JSON.stringify({ line, schema }));
@@ -473,7 +476,7 @@ async function runAnalyze(rawArgv: string[]) {
     const schema = analyzeJSON(items, analyzeOpts);
     if (mdOut) {
       console.log(`> JSONL: ${totalLines} lines treated as one array of items\n`);
-      console.log(renderAnalyzeMarkdown(schema, format as "md" | "md-flat" | "tree" | "xml"));
+      console.log(renderAnalyzeMarkdown(schema, format as "md" | "md-flat"));
     } else {
       outputResult({ totalLines, items: items.length, schema }, "json", !!argv.pretty);
     }
@@ -527,7 +530,12 @@ async function runAnalyze(rawArgv: string[]) {
     return;
   }
 
-  await runAnalyzeOnTargets(targets, mode, analyzeOpts, format, !!argv.pretty);
+  const renderOpts = format === "md-flat" ? undefined : {
+    top: Number(argv["top-summary"]) || 10,
+    maxDetailBytes: Number(argv["max-detail-bytes"]) || 51200,
+    pathPrefix: argv["path-prefix"] as string | undefined,
+  };
+  await runAnalyzeOnTargets(targets, mode, analyzeOpts, format, !!argv.pretty, undefined, renderOpts);
 }
 
 // ---------- 子命令：filter ----------
