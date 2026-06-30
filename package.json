@@ -1,0 +1,24 @@
+{
+  "name": "json-analyze",
+  "version": "2.3.1",
+  "type": "module",
+  "main": "src/index.ts",
+  "bin": {
+    "json-analyze": "bin/json-analyze"
+  },
+  "description": "JSON Schema Analyzer - 将任意 JSON 转换为扁平化 schema 数组",
+  "scripts": {
+    "check": "bunx tsc --noEmit --project tsconfig.json",
+    "test": "bun test",
+    "start": "bun -i src/index.ts"
+  },
+  "dependencies": {
+    "dayjs": "^1.11.13",
+    "lodash": "^4.17.21",
+    "minimist": "^1.2.8"
+  },
+  "devDependencies": {
+    "@types/lodash": "^4.17.0",
+    "@types/bun": "^1.3.11"
+  }
+}

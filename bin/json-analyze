@@ -1,0 +1,919 @@
+#!/usr/bin/env bun
+// json-analyze CLI: analyze | filter | summary | get | explore | search | compare | help
+// 新增: --jsonl flag 启用 JSONL 流式模式
+import minimist from "minimist";
+import { analyzeJSON } from "../src/analyzer.js";
+import { renderMarkdown } from "../src/format.js";
+import { filterJSON, searchJSON, globToRegex, type FilterQuery } from "../src/filter.js";
+import { getByPath, getClosestKeys } from "../src/paths.js";
+import { getFieldValues, getPathCardinality, getObjectKeys } from "../src/explorer.js";
+import { splitPath } from "../src/path-utils.js";
+import { summarizeSchema, compactSchema } from "../src/summarize.js";
+import {
+  parseJSONL,
+  analyzeJSONL,
+  filterJSONL,
+  searchJSONL,
+  aggregateAnalyzeJSONL,
+  type JSONLSource,
+} from "../src/jsonl.js";
+
+// ---------- 通用 ----------
+
+const SUB_COMMANDS = ["analyze", "filter", "summary", "get", "explore", "search", "compare", "help"] as const;
+type SubCommand = (typeof SUB_COMMANDS)[number];
+
+/** 帮助文本 */
+function printHelp(cmd?: SubCommand) {
+  if (!cmd || cmd === "help") {
+    console.log(`json-analyze — JSON 工具集 v2
+
+Usage:
+  json-analyze <command> [options] [file]
+  cat data.jsonl | json-analyze <command> --jsonl [options]
+
+Commands:
+  analyze    分析 JSON 结构，输出扁平 schema (md|json)
+  filter     按查询条件检索 JSON 内容
+  summary    输出 JSON 结构高层摘要
+  get        按路径提取数据值
+  explore    探索字段的值分布 / 基数 / key 列表
+  search     递归搜索 key / value (grep for JSON)
+  compare    多路径取值对比, 输出 markdown table
+  help       显示帮助
+
+JSONL 模式:
+  --jsonl 启用 JSONL 流式处理, 逐行解析 + 流式输出, 支持任意大小文件
+
+Run 'json-analyze <command> --help' for command-specific help.
+`);
+    return;
+  }
+  if (cmd === "analyze") {
+    console.log(`Usage: json-analyze analyze [file] [options]
+       cat file.json | json-analyze analyze [options]
+       cat file.jsonl | json-analyze analyze --jsonl [options]
+
+Options:
+  -f, --format   输出格式: md | json (默认: md)
+  -p, --pretty   与 --format json 配合时美化输出
+      --jsonl         启用 JSONL 模式 (默认: 当作大数组, 一次性合并 schema)
+      --per-line      配合 --jsonl, 改回逐行 schema (高级/超大文件用)
+      --max-depth      最大递归深度 (默认: 32)
+      --max-items      每个数组最多分析的元素数 (默认: 5000)
+      --max-keys       每个 object 最多列举的 key 数 (默认: 500)
+      --list-keys      只列出 object 节点的 key 列表 (树状)
+      --key-depth      配合 --list-keys 限制深度 (默认: 1, 只列第一层 key)
+      --path-glob      配合 --list-keys 限制路径范围, 支持 * 通配
+      --fold           配合 --list-keys, 折叠叶子节点只显示 key 数量
+  -h, --help     显示帮助
+
+JSONL 语义:
+  --jsonl 默认: 所有行合并为一个大数组, 调一次 analyzeJSON, 输出统一 schema
+                (含 presence/optional/mixed 跨行统计, 类似 SQL DESCRIBE)
+  --jsonl --per-line: 每行独立 schema, 流式输出 (用于调试单行差异或 GB 级文件)
+`);
+    return;
+  }
+  if (cmd === "filter") {
+    console.log(`Usage: json-analyze filter [file] [options] [query...]
+       cat file.jsonl | json-analyze filter --jsonl [options] [query...]
+
+Query 语法 (空格分隔多个条件):
+  key=value              字符串/数字/布尔/null 精确匹配 (string 自动转 substring)
+  key<n | key>n          数值小于/大于
+  key<=n | key>=n        数值小于等于/大于等于
+
+Options:
+  -f, --format       输出格式: json | md (默认: json)
+  -p, --pretty       美化 JSON 输出
+      --jsonl         启用 JSONL 流式模式 (每行独立 filter, 命中行立即输出)
+      --key-match    在对象 KEY 中搜索 (用于 dict-key 数据)
+      --path-glob    限制搜索路径，支持 * 通配
+      --max-depth    最大搜索深度 (默认: 32)
+      --limit        最多输出多少条匹配 (默认: 50)
+  -h, --help         显示帮助
+`);
+    return;
+  }
+if (cmd === "summary") {
+    console.log(`Usage: json-analyze summary [file] [options]
+       cat file.json | json-analyze summary
+       cat file.jsonl | json-analyze summary --jsonl
+
+Options:
+  -f, --format   输出格式: json | md (默认: md)
+  -p, --pretty   美化 JSON 输出
+      --jsonl     JSONL 模式下聚合所有行的 stats
+  -h, --help   显示帮助
+`);
+    return;
+  }
+if (cmd === "get") {
+    console.log(`Usage: json-analyze get <path> [file] [options]
+       cat file.json | json-analyze get <path>
+       cat file.jsonl | json-analyze get <path> --jsonl
+
+Options:
+  -f, --format   输出格式: json | md (默认: json)
+  -p, --pretty   美化 JSON 输出
+      --jsonl     JSONL 流式模式, 每行独立提取
+      --limit    最多提取条数 (默认: 100)
+  -h, --help   显示帮助
+
+例:
+  json-analyze get 'users[].name' data.json
+  cat data.json | json-analyze get 'items[].id' --limit 20
+`);
+    return;
+  }
+  if (cmd === "explore") {
+    console.log(`Usage: json-analyze explore <path> [file] [options]
+       cat file.json | json-analyze explore <path>
+       cat file.jsonl | json-analyze explore <path> --jsonl
+
+Options:
+  -f, --format       输出格式: json | md (默认: md)
+      --jsonl         JSONL 流式模式, 每行独立探索
+      --limit        最多提取条数 (默认: 100)
+      --no-distinct  不去重 (默认去重)
+      --cardinality  只输出基数 (distinct/total)
+      --keys         列出 object 节点的 key 列表 (非叶子探索)
+  -h, --help         显示帮助
+
+例:
+  json-analyze explore 'items[].role' data.json
+  json-analyze explore 'items[].role' data.json --cardinality
+  json-analyze explore 'root' data.json --keys         # 列出根对象的所有 key
+`);
+    return;
+  }
+  if (cmd === "search") {
+    console.log(`Usage: json-analyze search <pattern> [file] [options]
+       cat file.json | json-analyze search <pattern>
+       cat file.jsonl | json-analyze search <pattern> --jsonl
+
+Options:
+  -f, --format       输出格式: json | md (默认: md)
+  -p, --pretty       美化 JSON 输出
+      --jsonl         JSONL 流式模式, 命中行立即输出
+      --key-only     只搜索 key (默认 key+value)
+      --value-only   只搜索 value
+      --path-glob    限制搜索路径, 支持 * 通配
+      --max-depth    最大搜索深度 (默认: 32)
+      --limit        最多输出多少条匹配 (默认: 50)
+  -h, --help         显示帮助
+
+例:
+  json-analyze search deepseek data.json
+  json-analyze search 'gemini|glm' data.json --key-only
+  cat data.json | json-analyze search '0\\.14' --value-only --path-glob '*.cost.*'
+`);
+    return;
+  }
+  if (cmd === "compare") {
+    console.log(`Usage: json-analyze compare <path1> <path2> [...] [file] [options]
+       cat file.json | json-analyze compare <path1> <path2> [...]
+
+Options:
+  -f, --format   输出格式: md-table | json (默认: md-table)
+      --labels   逗号分隔的列标签 (默认: 从路径末段推断)
+      --fields   逗号分隔的子字段名, 用于展平 object (如 input,output)
+      --limit    每个路径最多提取条数 (默认: 10)
+  -h, --help     显示帮助
+
+例:
+  json-analyze compare \\
+    'deepseek.models["deepseek-v4-flash"].cost' \\
+    'vercel.models["xiaomi/mimo-v2.5"].cost' \\
+    'openrouter.models["stepfun/step-3.5-flash"].cost' \\
+    data.json --limit 1
+`);
+    return;
+  }
+}
+
+/** 读取输入：优先文件、否则 stdin */
+async function loadInput(argv: minimist.ParsedArgs): Promise<any> {
+  const file = argv._[0];
+  let input: string;
+  if (file) {
+    const f = Bun.file(file);
+    if (!(await f.exists())) throw new Error(`file not found: ${file}`);
+    input = await f.text();
+  } else {
+    const chunks: string[] = [];
+    for await (const chunk of Bun.stdin.stream()) {
+      chunks.push(new TextDecoder().decode(chunk));
+    }
+    input = chunks.join("");
+  }
+  if (!input.trim()) throw new Error("empty input (no file or stdin)");
+  try {
+    return JSON.parse(input);
+  } catch (e: any) {
+    throw new Error(`invalid JSON: ${e.message}`);
+  }
+}
+
+/** JSONL 模式: 读 file 或 stdin 为 JSONLSource (零拷贝流式) */
+async function loadJSONLInput(argv: minimist.ParsedArgs): Promise<JSONLSource> {
+  const file = argv._[0];
+  if (file) {
+    const f = Bun.file(file);
+    if (!(await f.exists())) throw new Error(`file not found: ${file}`);
+    return f;
+  }
+  // stdin 转 AsyncIterable<string>, 喂给 parseJSONL → 内部再做行切分
+  // 注: stdin chunk 通常就一行一段, 这里再 buffer 一次也不亏
+  async function* stdinLines() {
+    const decoder = new TextDecoder();
+    for await (const chunk of Bun.stdin.stream()) {
+      yield decoder.decode(chunk);
+    }
+  }
+  return stdinLines();
+}
+
+/** 统一输出 */
+function outputResult(payload: unknown, format: string, pretty: boolean) {
+  if (format === "md") {
+    if (Array.isArray(payload)) {
+      console.log(
+        payload
+          .map((it, i) => {
+            const body = pretty ? JSON.stringify(it, null, 2) : JSON.stringify(it);
+            return `### match #${i + 1}\n\n\`\`\`json\n${body}\n\`\`\``;
+          })
+          .join("\n\n")
+      );
+    } else {
+      console.log(pretty ? JSON.stringify(payload, null, 2) : JSON.stringify(payload));
+    }
+    return;
+  }
+  if (format === "json") {
+    console.log(pretty ? JSON.stringify(payload, null, 2) : JSON.stringify(payload));
+    return;
+  }
+  throw new Error(`unknown format: ${format}`);
+}
+
+// query token 正则：key<op>value
+const QUERY_TOKEN_RE = /^([\w$.\-[\]]+)(<=|>=|<|>|=)(.+)$/;
+
+function parseQueries(tokens: string[], lenient = false): FilterQuery[] {
+  if (tokens.length === 0) return [];
+  const queries: FilterQuery[] = [];
+  for (const tok of tokens) {
+    const m = tok.match(QUERY_TOKEN_RE);
+    if (!m) {
+      if (lenient) continue;
+      throw new Error(
+        `invalid query token: "${tok}" (expect key<op>value, e.g. id=k2p6, cost.input<=1)`
+      );
+    }
+    const [, key, op, rawVal] = m;
+    queries.push({ key, op: op as FilterQuery["op"], value: rawVal });
+  }
+  return queries;
+}
+
+// ---------- 子命令：analyze ----------
+
+async function runAnalyze(rawArgv: string[]) {
+  const argv = minimist(rawArgv, {
+    string: ["format", "path-glob"],
+    boolean: ["help", "pretty", "list-keys", "fold", "jsonl", "per-line"],
+    alias: { h: "help", f: "format", p: "pretty" },
+    default: { format: "md", "max-depth": 32, "max-items": 5000, "max-keys": 500, "key-depth": 1 },
+  });
+  if (argv.help) { printHelp("analyze"); return; }
+  const format = argv.format as string;
+  if (!["md", "json"].includes(format)) throw new Error(`unknown format "${format}", expected "md"|"json"`);
+  const analyzeOpts = {
+    maxDepth: Number(argv["max-depth"]) || 32,
+    maxArrayItems: Number(argv["max-items"]) || 5000,
+    maxKeysPerObject: Number(argv["max-keys"]) || 500,
+  };
+
+  // JSONL 模式: 默认合并为一个大数组, 一次性 analyze; --per-line 切回逐行
+  if (argv.jsonl) {
+    const source = await loadJSONLInput(argv);
+    if (argv["per-line"]) {
+      // 逐行流式 (高级: 用于调试或超大文件)
+      for await (const { line, result: schema } of analyzeJSONL(source, analyzeOpts)) {
+        if (format === "md") {
+          console.log(`### line ${line}\n`);
+          console.log(renderMarkdown(schema));
+          console.log("");
+        } else {
+          console.log(JSON.stringify({ line, schema }));
+        }
+      }
+      return;
+    }
+    // 默认: 合并成大数组, 一次 analyzeJSON (含 presence/optional/mixed 跨行统计)
+    const items: any[] = [];
+    let totalLines = 0;
+    for await (const parsed of parseJSONL(source)) {
+      totalLines++;
+      items.push(parsed.data);
+    }
+    if (items.length === 0) {
+      console.error("empty JSONL");
+      process.exitCode = 2;
+      return;
+    }
+    const schema = analyzeJSON(items, analyzeOpts);
+    if (format === "md") {
+      console.log(`> JSONL: ${totalLines} lines treated as one array of items\n`);
+      console.log(renderMarkdown(schema));
+    } else {
+      outputResult({ totalLines, items: items.length, schema }, "json", !!argv.pretty);
+    }
+    return;
+  }
+
+  const data = await loadInput(argv);
+  const schema = analyzeJSON(data, analyzeOpts);
+
+  if (argv["list-keys"]) {
+    const keyDepth = Number(argv["key-depth"]) || 1;
+    const pathGlob = argv["path-glob"] as string | undefined;
+    const fold = !!argv.fold;
+    // 构建 pathGlob 正则
+    const globRe = pathGlob ? globToRegex(pathGlob) : null;
+
+    let objects = schema.filter((item) => {
+      if (item.type !== "object" || !item.keys) return false;
+      const depth = splitPath(item.path).length;
+      if (depth > keyDepth + 1) return false;
+      if (globRe) {
+        const sub = item.path.startsWith("root.") ? item.path.slice(5) : item.path;
+        return globRe.test(sub) || globRe.test(item.path);
+      }
+      return true;
+    });
+
+    // --fold: 折叠到最浅层, 只显示 key 数量
+    if (fold) {
+      const minDepth = Math.min(...objects.map((o) => splitPath(o.path).length));
+      objects = objects.filter((o) => splitPath(o.path).length === minDepth);
+    }
+
+    if (format === "md") {
+      for (const obj of objects) {
+        const depth = splitPath(obj.path).length;
+        const indent = "  ".repeat(Math.max(0, depth - 1));
+        const keyList = fold
+          ? `\`${obj.keys!.length} keys\``
+          : obj.keys!.map((k) => `\`${k}\``).join(", ");
+        console.log(`${indent}**${obj.path}** — ${keyList}`);
+      }
+    } else {
+      outputResult(objects.map((o) => ({ path: o.path, keys: fold ? o.keys!.length : o.keys })), "json", !!argv.pretty);
+    }
+    return;
+  }
+
+  if (format === "md") {
+    console.log(renderMarkdown(schema));
+  } else {
+    outputResult(schema, "json", !!argv.pretty);
+  }
+}
+
+// ---------- 子命令：filter ----------
+
+async function runFilter(rawArgv: string[]) {
+  const argv = minimist(rawArgv, {
+    string: ["format", "key-match", "path-glob"],
+    boolean: ["help", "pretty", "jsonl"],
+    alias: { h: "help", f: "format", p: "pretty" },
+    default: { format: "json", "key-match": "", "path-glob": "", "max-depth": 32, limit: 50 },
+  });
+  if (argv.help) { printHelp("filter"); return; }
+  const format = argv.format as string;
+  if (!["md", "json"].includes(format)) throw new Error(`unknown format "${format}", expected "md"|"json"`);
+
+  const hasKeyMatch = rawArgv.some((a) => a === "--key-match" || a.startsWith("--key-match="));
+  const explicitKeyMatch = (argv["key-match"] as string) || undefined;
+  let keyMatch: string | undefined = explicitKeyMatch;
+  let file: string | undefined;
+  let queryTokens: string[];
+
+  const posArgs = argv._.map(String);
+  const queryLike = posArgs.filter((t) => QUERY_TOKEN_RE.test(t));
+  const nonQuery = posArgs.filter((t) => !QUERY_TOKEN_RE.test(t));
+
+  if (!keyMatch && hasKeyMatch) {
+    // --key-match bare: non-query args = file + keyMatch patterns
+    file = nonQuery[0];
+    if (nonQuery.length > 1) keyMatch = nonQuery.slice(1).join(" ");
+    queryTokens = queryLike;
+  } else if (queryLike.length > 0) {
+    // 有 query token → query 模式
+    file = nonQuery.length > 0 ? nonQuery[0] : undefined;
+    queryTokens = queryLike;
+  } else if (nonQuery.length >= 1) {
+    // 无 query / keyMatch → first = file
+    file = nonQuery[0];
+    queryTokens = [];
+  } else {
+    queryTokens = [];
+  }
+  // keyMatch 激活时容忍无效 query token（非 query-like 的 token 已被归为 nonQuery）
+  const queries = parseQueries(queryTokens, !!keyMatch);
+
+  const filterOpts = {
+    queries,
+    keyMatch,
+    pathGlob: argv["path-glob"] || undefined,
+    maxDepth: Number(argv["max-depth"]) || 32,
+    limit: Number(argv.limit) || 50,
+  };
+
+  // JSONL 模式: 逐行流式 filter, 命中行立即输出
+  if (argv.jsonl) {
+    const loadArgv = { ...argv, _: file ? [file] : [] };
+    const source = await loadJSONLInput(loadArgv);
+    let totalHits = 0;
+    for await (const { line, result } of filterJSONL(source, filterOpts)) {
+      for (let i = 0; i < result.matches.length; i++) {
+        const m = result.matches[i];
+        if (format === "md") {
+          const body = JSON.stringify(m, null, 2);
+          console.log(`### match @line=${line}, path=${result.paths[i]}\n\n\`\`\`json\n${body}\n\`\`\`\n`);
+        } else {
+          console.log(JSON.stringify({ line, path: result.paths[i], match: m }));
+        }
+        totalHits++;
+      }
+    }
+    if (totalHits === 0) {
+      console.error("no match");
+      process.exitCode = 2;
+    }
+    return;
+  }
+
+  const loadArgv = { ...argv, _: file ? [file] : [] };
+  const data = await loadInput(loadArgv);
+  const result = filterJSON(data, filterOpts);
+
+  if (result.matches.length === 0) {
+    console.error("no match");
+    process.exitCode = 2;
+  }
+  outputResult(result.matches, format, !!argv.pretty);
+  if (result.truncated) {
+    console.error(`... truncated to ${result.matches.length} matches (use --limit to increase)`);
+  }
+}
+
+// ---------- 子命令：summary ----------
+
+async function runSummary(rawArgv: string[]) {
+  const argv = minimist(rawArgv, {
+    string: ["format"],
+    boolean: ["help", "pretty", "jsonl"],
+    alias: { h: "help", f: "format" },
+    default: { format: "md" },
+  });
+  if (argv.help) { printHelp("summary"); return; }
+  const format = argv.format as string;
+  if (!["md", "json"].includes(format)) throw new Error(`unknown format "${format}", expected "md"|"json"`);
+
+  // JSONL 模式: 聚合所有行的 stats
+  if (argv.jsonl) {
+    const source = await loadJSONLInput(argv);
+    const stats = await aggregateAnalyzeJSONL(source);
+    if (format === "md") {
+      console.log(`## Summary (JSONL aggregated)\n`);
+      console.log(`- total lines: ${stats.totalLines}`);
+      console.log(`- successful lines: ${stats.successfulLines}`);
+      console.log(`- total nodes: ${stats.totalNodes}`);
+      console.log(`- max depth: ${stats.maxDepth}`);
+      console.log(`- arrays: ${stats.arraysCount} (${stats.emptyArrays} empty, ${stats.truncatedArrays} truncated)`);
+      console.log(`- objects: ${stats.objectsCount} (${stats.truncatedObjects} truncated)`);
+      console.log(`- mixed fields: ${stats.mixedFields}`);
+      console.log(`- long-text fields: ${stats.longTextFields}`);
+      const leafInfo = Object.entries(stats.leafTypes)
+        .map(([k, v]) => `\`${k}\`(${v})`)
+        .join(", ");
+      if (leafInfo) console.log(`- leaf types: ${leafInfo}`);
+    } else {
+      outputResult(stats, "json", !!argv.pretty);
+    }
+    return;
+  }
+
+  const data = await loadInput(argv);
+  const schema = analyzeJSON(data);
+  const summary = summarizeSchema(schema);
+  const compact = compactSchema(schema);
+
+  if (format === "md") {
+    console.log(`## Structure\n\n\`${compact}\`\n`);
+    console.log(`## Summary\n`);
+    console.log(`- total nodes: ${summary.totalNodes}`);
+    console.log(`- max depth: ${summary.maxDepth}`);
+    console.log(`- arrays: ${summary.arraysCount} (${summary.emptyArrays} empty, ${summary.truncatedArrays} truncated)`);
+    console.log(`- objects: ${summary.objectsCount} (${summary.truncatedObjects} truncated)`);
+    console.log(`- mixed fields: ${summary.mixedFields}`);
+    console.log(`- long-text fields: ${summary.longTextFields}`);
+    const leafInfo = Object.entries(summary.leafTypes)
+      .map(([k, v]) => `\`${k}\`(${v})`)
+      .join(", ");
+    if (leafInfo) console.log(`- leaf types: ${leafInfo}`);
+  } else {
+    outputResult({ compact, summary }, "json", !!argv.pretty);
+  }
+}
+
+// ---------- 子命令：get ----------
+
+async function runGet(rawArgv: string[]) {
+  const argv = minimist(rawArgv, {
+    string: ["format"],
+    boolean: ["help", "pretty", "jsonl"],
+    alias: { h: "help", f: "format", p: "pretty" },
+    default: { format: "json", limit: 100 },
+  });
+  if (argv.help) { printHelp("get"); return; }
+
+  // 第一个非 flag 参数是 path，第二个是 file
+  let path: string;
+  let file: string | undefined;
+  if (argv._.length >= 2) {
+    path = String(argv._[0]);
+    file = argv._[1];
+  } else if (argv._.length === 1) {
+    path = String(argv._[0]);
+    file = undefined;
+  } else {
+    throw new Error("missing path argument");
+  }
+
+  const format = argv.format as string;
+  if (!["md", "json"].includes(format)) throw new Error(`unknown format "${format}", expected "md"|"json"`);
+  const limit = Number(argv.limit) || 100;
+
+  // JSONL 模式: 每行独立 getByPath
+  if (argv.jsonl) {
+    const loadArgv = { ...argv, _: file ? [file] : [] };
+    const source = await loadJSONLInput(loadArgv);
+    let totalValues = 0;
+    for await (const parsed of parseJSONL(source)) {
+      const values = getByPath(parsed.data, path, { limit });
+      if (values.length === 0) continue;
+      totalValues += values.length;
+      if (format === "md") {
+        console.log(`### line ${parsed.line}\n`);
+        for (const v of values) {
+          console.log(`- \`${typeof v === "object" ? JSON.stringify(v) : String(v)}\``);
+        }
+        console.log("");
+      } else {
+        console.log(JSON.stringify({ line: parsed.line, values }));
+      }
+    }
+    if (totalValues === 0) {
+      console.error("no match");
+      process.exitCode = 2;
+    }
+    return;
+  }
+
+  const loadArgv = { ...argv, _: file ? [file] : [] };
+  const data = await loadInput(loadArgv);
+  const values = getByPath(data, path, { limit });
+
+  // 当结果为空, 尝试诊断路径问题
+  if (values.length === 0) {
+    const hint = getClosestKeys(data, path, { limit: 10 });
+    if (hint) {
+      console.error(`no match for path: ${path}`);
+      console.error(`  last valid node: ${hint.lastValidPath} (${hint.lastNodeType})`);
+      if (hint.closestKeys.length > 0) {
+        console.error(`  closest keys: ${hint.closestKeys.map((k) => `\`${k}\``).join(", ")}`);
+      }
+      if (hint.searchedKey) console.error(`  searched: \`${hint.searchedKey}\``);
+    } else {
+      console.error("no match");
+    }
+    process.exitCode = 2;
+    return;
+  }
+
+  outputResult(values, format, !!argv.pretty);
+}
+
+// ---------- 子命令：explore ----------
+
+async function runExplore(rawArgv: string[]) {
+  const argv = minimist(rawArgv, {
+    string: ["format"],
+    boolean: ["help", "cardinality", "no-distinct", "keys", "jsonl"],
+    alias: { h: "help", f: "format" },
+    default: { format: "md", limit: 100 },
+  });
+  if (argv.help) { printHelp("explore"); return; }
+
+  let path: string;
+  let file: string | undefined;
+  if (argv._.length >= 2) {
+    path = String(argv._[0]);
+    file = argv._[1];
+  } else if (argv._.length === 1) {
+    path = String(argv._[0]);
+    file = undefined;
+  } else {
+    throw new Error("missing path argument");
+  }
+
+  const format = argv.format as string;
+  if (!["md", "json"].includes(format)) throw new Error(`unknown format "${format}", expected "md"|"json"`);
+  const limit = Number(argv.limit) || 100;
+
+  // JSONL 模式: 每行独立 explore, 输出 line + result
+  if (argv.jsonl) {
+    const loadArgv = { ...argv, _: file ? [file] : [] };
+    const source = await loadJSONLInput(loadArgv);
+    for await (const parsed of parseJSONL(source)) {
+      const tag = `line ${parsed.line}`;
+      if (argv.keys) {
+        const r = getObjectKeys(parsed.data, path, { limit });
+        console.log(JSON.stringify({ line: parsed.line, ...r }));
+      } else if (argv.cardinality) {
+        const r = getPathCardinality(parsed.data, path);
+        console.log(JSON.stringify({ line: parsed.line, ...r }));
+      } else {
+        const r = getFieldValues(parsed.data, path, { limit, distinct: !argv["no-distinct"] });
+        console.log(JSON.stringify({ line: parsed.line, ...r }));
+      }
+      void tag; // 占位
+    }
+    return;
+  }
+
+  const loadArgv = { ...argv, _: file ? [file] : [] };
+  const data = await loadInput(loadArgv);
+
+  // --keys: 列出 object 节点的 key 列表
+  if (argv.keys) {
+    const result = getObjectKeys(data, path, { limit });
+    if (format === "md") {
+      const truncatedNote = result.truncated ? ` (truncated, ${result.total} total)` : "";
+      console.log(`**${path}** — keys: ${result.keys.length}${truncatedNote}`);
+      for (let i = 0; i < result.keys.length; i++) {
+        console.log(`  ${i + 1}. \`${result.keys[i]}\``);
+      }
+    } else {
+      outputResult(result, "json", true);
+    }
+    return;
+  }
+
+  if (argv.cardinality) {
+    const card = getPathCardinality(data, path);
+    if (format === "md") {
+      console.log(`**${path}** — distinct: \`${card.distinct}\`, total: \`${card.total}\`, truncated: \`${card.truncated}\``);
+    } else {
+      outputResult(card, "json", true);
+    }
+    return;
+  }
+
+  const result = getFieldValues(data, path, { limit, distinct: !argv["no-distinct"] });
+  if (format === "md") {
+    console.log(`**${path}** — total visited: \`${result.totalVisited}\`, distinct: \`${result.distinct}\`, truncated: \`${result.truncated}\``);
+    console.log("");
+    for (let i = 0; i < result.values.length; i++) {
+      const v = result.values[i];
+      console.log(`${i + 1}. \`${typeof v === "object" ? JSON.stringify(v) : String(v)}\``);
+    }
+  } else {
+    outputResult(result, "json", true);
+  }
+}
+
+// ---------- 子命令：search ----------
+
+async function runSearch(rawArgv: string[]) {
+  const argv = minimist(rawArgv, {
+    string: ["format", "path-glob"],
+    boolean: ["help", "pretty", "key-only", "value-only", "jsonl"],
+    alias: { h: "help", f: "format", p: "pretty" },
+    default: { format: "md", "path-glob": "", "max-depth": 32, limit: 50 },
+  });
+  if (argv.help) { printHelp("search"); return; }
+  const format = argv.format as string;
+  if (!["md", "json"].includes(format)) throw new Error(`unknown format "${format}", expected "md"|"json"`);
+
+  let pattern: string;
+  let file: string | undefined;
+  if (argv._.length >= 2) {
+    pattern = String(argv._[0]);
+    file = argv._[1];
+  } else if (argv._.length === 1) {
+    pattern = String(argv._[0]);
+    file = undefined;
+  } else {
+    throw new Error("missing pattern argument");
+  }
+
+  const searchOpts = {
+    pattern,
+    keyOnly: argv["key-only"],
+    valueOnly: argv["value-only"],
+    pathGlob: argv["path-glob"] || undefined,
+    maxDepth: Number(argv["max-depth"]) || 32,
+    limit: Number(argv.limit) || 50,
+  };
+
+  // JSONL 模式: 逐行流式 search
+  if (argv.jsonl) {
+    const loadArgv = { ...argv, _: file ? [file] : [] };
+    const source = await loadJSONLInput(loadArgv);
+    let totalHits = 0;
+    for await (const { line, result } of searchJSONL(source, searchOpts)) {
+      for (const m of result.matches) {
+        if (format === "md") {
+          const val = m.value !== undefined ? ` = \`${typeof m.value === "object" ? JSON.stringify(m.value) : String(m.value)}\`` : "";
+          console.log(`- line ${line}: \`${m.path}\` (key=${m.key ?? "-"})${val}`);
+        } else {
+          console.log(JSON.stringify({ line, ...m }));
+        }
+        totalHits++;
+      }
+    }
+    if (totalHits === 0) {
+      console.error("no match");
+      process.exitCode = 2;
+    }
+    return;
+  }
+
+  const loadArgv = { ...argv, _: file ? [file] : [] };
+  const data = await loadInput(loadArgv);
+  const result = searchJSON(data, searchOpts);
+
+  if (result.matches.length === 0) {
+    console.error("no match");
+    process.exitCode = 2;
+  }
+  outputResult(result.matches, format, !!argv.pretty);
+  if (result.truncated) {
+    console.error(`... truncated to ${result.matches.length} matches (use --limit to increase)`);
+  }
+}
+
+// ---------- 子命令：compare ----------
+
+async function runCompare(rawArgv: string[]) {
+  const argv = minimist(rawArgv, {
+    string: ["format", "labels", "fields"],
+    boolean: ["help", "pretty"],
+    alias: { h: "help", f: "format", p: "pretty" },
+    default: { format: "md-table", limit: 10 },
+  });
+  if (argv.help) { printHelp("compare"); return; }
+
+  // --labels 解析
+  const labelStr = argv.labels as string | undefined;
+  const labels = labelStr ? labelStr.split(",").map((s) => s.trim()) : [];
+
+  // 路径 + file 分拆: 最后一个非 path-glob 的 arg 可能是 file
+  // 简单策略: 检查最后一项是否为文件
+  const allArgs = argv._.map(String);
+  let file: string | undefined;
+  let paths: string[];
+  if (allArgs.length >= 2) {
+    const last = allArgs[allArgs.length - 1];
+    // 检查是否是文件
+    const testFile = Bun.file(last);
+    if (await testFile.exists()) {
+      file = last;
+      paths = allArgs.slice(0, -1);
+    } else {
+      paths = allArgs;
+    }
+  } else {
+    throw new Error("need at least 2 paths to compare");
+  }
+
+  if (paths.length < 2) throw new Error("need at least 2 paths to compare");
+
+  const format = argv.format as string;
+  if (!["md-table", "json"].includes(format)) throw new Error(`unknown format "${format}", expected "md-table"|"json"`);
+  const loadArgv = { ...argv, _: file ? [file] : [] };
+  const data = await loadInput(loadArgv);
+  const limit = Number(argv.limit) || 10;
+  const fieldStr = argv.fields as string | undefined;
+  const fields = fieldStr ? fieldStr.split(",").map((s) => s.trim()) : null;
+
+  // 提取每个路径的值
+  const columns = paths.map((p, i) => {
+    const vals = getByPath(data, p, { limit });
+    return {
+      label: labels[i] || inferLabel(p),
+      path: p,
+      values: vals,
+    };
+  });
+
+  // 推断最多行数
+  const maxRows = Math.max(...columns.map((c) => c.values.length));
+
+  if (format === "md-table") {
+    if (fields) {
+      // --fields 模式: 每列 × 每行 展平为子字段
+      for (const c of columns) {
+        console.log(`### ${c.label}`);
+        console.log("");
+        // 表头: field | value
+        for (let row = 0; row < maxRows; row++) {
+          const v = c.values[row];
+          if (!v || typeof v !== "object") {
+            console.log(`- row ${row + 1}: \`${JSON.stringify(v)}\``);
+            continue;
+          }
+          console.log(`| field | value |`);
+          console.log(`|-------|-------|`);
+          for (const f of fields) {
+            const fv = (v as any)[f];
+            console.log(`| ${f} | \`${fv ?? "-"}\` |`);
+          }
+          console.log("");
+        }
+      }
+    } else {
+      // 默认: 多列并排
+      const header = "| " + columns.map((c) => c.label).join(" | ") + " |";
+      const sep = "|" + columns.map(() => "--------").join("|") + "|";
+      console.log(header);
+      console.log(sep);
+
+      for (let row = 0; row < maxRows; row++) {
+        const cells = columns.map((c) => {
+          const v = c.values[row];
+          if (v === undefined) return "";
+          if (typeof v === "object") return JSON.stringify(v);
+          return String(v);
+        });
+        console.log("| " + cells.join(" | ") + " |");
+      }
+    }
+
+    // 来源标注
+    console.log("");
+    for (const c of columns) {
+      console.log(`- \`${c.label}\`: \`${c.path}\``);
+    }
+  } else {
+    outputResult(columns.map((c) => ({ label: c.label, path: c.path, values: c.values })), "json", !!argv.pretty);
+  }
+}
+
+/** 从路径末段推断标签，优先用倒数第二个 key（通常是 model id / provider 名） */
+function inferLabel(path: string): string {
+  const segs = splitPath(path);
+  const keys = segs.filter((s) => s.type === "key" && s.value);
+  if (keys.length >= 2) return keys[keys.length - 2].value!;
+  if (keys.length === 1) return keys[0].value!;
+  return path;
+}
+
+async function main() {
+  const argv = minimist(process.argv.slice(2), {
+    boolean: ["help"],
+    alias: { h: "help" },
+  });
+  if (argv.help && !argv._.length) {
+    printHelp("help");
+    return;
+  }
+
+  const cmd = (argv._[0] as SubCommand) || "analyze";
+  const rest = process.argv.slice(3);
+
+  if (cmd === "help") { printHelp("help"); return; }
+  if (!SUB_COMMANDS.includes(cmd)) {
+    return runAnalyze(process.argv.slice(2));
+  }
+
+  if (cmd === "analyze") return runAnalyze(rest);
+  if (cmd === "filter") return runFilter(rest);
+  if (cmd === "summary") return runSummary(rest);
+  if (cmd === "get") return runGet(rest);
+  if (cmd === "explore") return runExplore(rest);
+  if (cmd === "search") return runSearch(rest);
+  if (cmd === "compare") return runCompare(rest);
+}
+
+main().catch((e) => {
+  console.error(`Error: ${e.message}`);
+  process.exit(1);
+});
