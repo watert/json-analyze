@@ -2,6 +2,7 @@
 import { splitPath } from "./path-utils.js";
 import type { FlatSchemaItem, AnalyzeSummary } from "./types.js";
 import { summarizeSchema, compactSchema } from "./summarize.js";
+import { truncateForDisplay } from "./display-truncate.js";
 
 export interface OverviewInputMeta {
   sourceLabel: string;
@@ -143,7 +144,7 @@ function formatHotspotSection(schema: FlatSchemaItem[]): string {
 export function renderOverviewMarkdown(opts: OverviewOptions): string {
   const { fileArg, meta, schema, summary } = opts;
   const f = fileToken(fileArg);
-  const compact = compactSchema(schema);
+  const compact = truncateForDisplay(compactSchema(schema));
   const truncFlags =
     summary.truncatedArrays + summary.truncatedObjects > 0
       ? `是 (${summary.truncatedArrays} 数组 / ${summary.truncatedObjects} 对象节点被采样截断)`
@@ -290,7 +291,7 @@ export function buildOverviewJSON(opts: OverviewOptions): OverviewJSON {
 /** 多文件时每文件短报告 */
 export function renderOverviewBriefMarkdown(opts: OverviewOptions): string {
   const { meta, schema, summary } = opts;
-  const compact = compactSchema(schema);
+  const compact = truncateForDisplay(compactSchema(schema));
   const hot = pickHotspots(schema, 3).map(hotspotLine).join("\n");
   const lines = [
     `### ${meta.sourceLabel}`,

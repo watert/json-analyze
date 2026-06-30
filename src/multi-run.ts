@@ -5,6 +5,7 @@ import { renderMarkdown } from "./format.js";
 import { readJsonFromTarget } from "./io.js";
 import { isStdinTarget, type InputTarget } from "./input-resolve.js";
 import { mergeAnalyzeSummaries } from "./batch-summary.js";
+import { truncateForDisplay } from "./display-truncate.js";
 import { compactSchema, summarizeSchema } from "./summarize.js";
 import type { AnalyzeOptions } from "./types.js";
 
@@ -116,7 +117,7 @@ export async function runSummaryOnTargets(
   await forEachJsonFile(targets, mode, (label, data) => {
     const schema = analyzeJSON(data);
     summaries.push(summarizeSchema(schema));
-    compacts.push(targets.length > 1 ? `${label}: ${compactSchema(schema)}` : compactSchema(schema));
+    const c = truncateForDisplay(compactSchema(schema)); compacts.push(targets.length > 1 ? `${label}: ${c}` : c);
   });
   const summary = mergeAnalyzeSummaries(summaries);
   const singleCompact = compacts[0] ?? "";
@@ -126,7 +127,7 @@ export async function runSummaryOnTargets(
       console.log(`## Structure (per file)\n\n${compacts.map((c) => `- ${c}`).join("\n")}\n`);
       console.log(`## Summary (aggregated ${summaries.length} files)\n`);
     } else {
-      console.log(`## Structure\n\n\`${singleCompact}\`\n`);
+      console.log(`## Structure\n\n\`${truncateForDisplay(singleCompact)}\`\n`);
       console.log(`## Summary\n`);
     }
     console.log(`- total nodes: ${summary.totalNodes}`);
