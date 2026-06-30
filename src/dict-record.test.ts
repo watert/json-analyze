@@ -1,4 +1,7 @@
 import { describe, expect, it } from "bun:test";
+import { readFileSync } from "fs";
+import { homedir } from "os";
+import { join } from "path";
 import { analyzeJSON } from "./analyzer.js";
 import {
   detectHomogeneousRecord,
@@ -40,6 +43,14 @@ describe("dict-record", () => {
     expect(r?.keysCount).toBe(30);
   });
 
+  it("小样本高 overlap 可判定 record (>=3)", () => {
+    const obj: Record<string, object> = {};
+    for (let i = 0; i < 5; i++) obj[`205423555002289833${i}`] = { id: String(i), type: "article", title: `t${i}`, excerpt: "x" };
+    const r = detectHomogeneousRecord(obj, mergeRecordDetectOpts({}));
+    expect(r?.keysCount).toBe(5);
+    expect(r!.overlap).toBeGreaterThan(0.9);
+  });
+
   it("analyzeJSON 不逐 id 展开", () => {
     const obj: Record<string, object> = {};
     for (let i = 0; i < 30; i++) obj[`204930018105371494${String(i).padStart(2, "0")}`] = { id: i, name: `n${i}` };
@@ -49,5 +60,14 @@ describe("dict-record", () => {
     expect(schema.find((s) => s.path === "root.answers[].id")).toBeDefined();
     expect(summarizeSchema(schema).totalNodes).toBeLessThan(50);
     expect(compactSchema(schema)).toContain("Record<string");
+  });
+
+  it("629 fixture: articles record、users record", () => {
+    const p = join(homedir(), "docs/scripts/state-data/zhihu-my-answers-state--260629.json");
+    const data = JSON.parse(readFileSync(p, "utf8"));
+    const schema = analyzeJSON(data);
+    expect(schema.find((s) => s.path === "root.entities.articles" && s.type === "record")).toBeDefined();
+    expect(schema.filter((s) => /^root\.entities\.articles\.\d+/.test(s.path)).length).toBe(0);
+    expect(schema.find((s) => s.path === "root.entities.users" && s.type === "record")).toBeDefined();
   });
 });

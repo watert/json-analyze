@@ -101,7 +101,7 @@ export function detectHomogeneousRecord(
   const entries = Object.entries(obj);
   const objectEntries = entries.filter(([, v]) => isPlainObject(v)) as [string, object][];
   const nonemptyEntries = objectEntries.filter(([, v]) => Object.keys(v).length >= MIN_KEYS_FOR_SAMPLE);
-  if (nonemptyEntries.length < cfg.recordMinValues) return null;
+  if (nonemptyEntries.length < 2) return null;
   if (objectEntries.length / entries.length < 0.85) return null;
 
   const objKeys = objectEntries.map(([k]) => k);
@@ -110,6 +110,15 @@ export function detectHomogeneousRecord(
   const samples = sampleObjectValues(obj, cfg.recordSampleSize);
   if (samples.length < 2) return null;
   const overlap = avgKeyOverlap(samples);
+
+  const count = nonemptyEntries.length;
+  const minRequired =
+    count >= cfg.recordMinValues
+      ? cfg.recordMinValues
+      : count >= 3 && overlap >= 0.9
+        ? 3
+        : cfg.recordMinValues;
+  if (count < minRequired) return null;
   if (overlap < cfg.recordOverlapRatio) return null;
 
   return {
