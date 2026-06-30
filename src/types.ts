@@ -12,6 +12,9 @@ export interface FlatSchemaItem {
   originalLength?: number;
   variants?: VariantEntry[];
   keys?: string[];
+  keysCount?: number;
+  sampleKeys?: string[];
+  recordOverlap?: number;
 }
 
 export interface ItemTypeEntry {
@@ -37,6 +40,14 @@ export interface AnalyzeOptions {
   maxKeysPerObject?: number;
   /** 每种类型最多收集的样本数 (默认 3) */
   sampleCount?: number;
+  /** 同质 Record 检测: 抽样 value 条数 (默认 10) */
+  recordSampleSize?: number;
+  /** keys 指纹平均 Jaccard 阈值 (默认 0.5) */
+  recordOverlapRatio?: number;
+  /** 至少多少个 object value 才尝试 (默认 8) */
+  recordMinValues?: number;
+  /** 关闭同质 Record 合并 (默认开启) */
+  recordDetect?: boolean;
 }
 
 // ---------- summary 类型 ----------

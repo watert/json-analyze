@@ -72,6 +72,13 @@ export function compactSchema(schema: FlatSchemaItem[]): string {
 }
 
 function formatNode(node: FlatSchemaItem, childrenMap: Map<string, FlatSchemaItem[]>): string {
+  if (node.type === "record") {
+    const children = childrenMap.get(node.path) || [];
+    const inner = children.map((ch) => formatField(ch, childrenMap));
+    const n = node.keysCount ?? "?";
+    const body = inner.length ? `{ ${inner.join(", ")} }` : "object";
+    return `Record<string, ${body}> (${n} keys)`;
+  }
   if (node.type === "object") {
     const children = childrenMap.get(node.path) || [];
     const fields = children.map((ch) => formatField(ch, childrenMap));

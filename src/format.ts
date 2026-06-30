@@ -30,6 +30,9 @@ function renderItem(item: FlatSchemaItem): string {
 
 /** 构建类型标签，如 "object" / "array[4]" / "long-text[167]" */
 function buildTypeLabel(item: FlatSchemaItem): string {
+  if (item.type === "record" && item.keysCount != null) {
+    return `record[${item.keysCount}]`;
+  }
   if (item.type === "array" && item.itemTypes) {
     const total = item.itemTypes.reduce((s, it) => s + it.count, 0);
     return `array[${total}]`;
@@ -43,6 +46,11 @@ function buildTypeLabel(item: FlatSchemaItem): string {
 /** 构建第二行详情 */
 function buildDetailLine(item: FlatSchemaItem): string | null {
   const lines: string[] = [];
+
+  if (item.type === "record") {
+    if (item.sampleKeys?.length) lines.push(`sample keys: ${item.sampleKeys.map((k) => "`" + k + "`").join(", ")}`);
+    if (item.recordOverlap != null) lines.push(`keys overlap (sample): ${(item.recordOverlap * 100).toFixed(0)}%`);
+  }
 
   // object: keys
   if (item.type === "object" && item.keys) {

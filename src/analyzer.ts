@@ -3,9 +3,10 @@
 import dayjs from "dayjs";
 import isPlainObject from "lodash/isPlainObject.js";
 import { appendPathKey, appendArrayFieldKey, appendInnerArray } from "./path-utils.js";
+import { detectHomogeneousRecord, mergeRecordDetectOpts } from "./dict-record.js";
 import type { FlatSchemaItem, ItemTypeEntry, VariantEntry, AnalyzeOptions } from "./types.js";
 
-const DEFAULTS: Required<AnalyzeOptions> = {
+const DEFAULTS: Required<Pick<AnalyzeOptions, "maxDepth" | "maxArrayItems" | "maxKeysPerObject" | "sampleCount">> = {
   maxDepth: 32,
   maxArrayItems: 5000,
   maxKeysPerObject: 500,
@@ -15,9 +16,10 @@ const DEFAULTS: Required<AnalyzeOptions> = {
 /** 将任意 JSON 数据转换为扁平化 schema 数组 */
 export function analyzeJSON(data: any, opts: AnalyzeOptions = {}): FlatSchemaItem[] {
   const { maxDepth, maxArrayItems, maxKeysPerObject, sampleCount } = { ...DEFAULTS, ...opts };
+  const recordCfg = mergeRecordDetectOpts(opts);
   const result: FlatSchemaItem[] = [];
   const seen = new Set<object>();
-  analyzeValue(data, "root", result, seen, 0, maxDepth, maxArrayItems, maxKeysPerObject, sampleCount);
+  analyzeValue(data, "root", result, seen, 0, maxDepth, maxArrayItems, maxKeysPerObject, sampleCount, recordCfg);
   return result;
 }
 
@@ -31,7 +33,8 @@ function analyzeValue(
   maxDepth: number,
   maxArrayItems: number,
   maxKeysPerObject: number,
-  sampleCount: number
+  sampleCount: number,
+  recordCfg: ReturnType<typeof mergeRecordDetectOpts>
 ) {
   if (depth > maxDepth) {
     result.push({ path, type: typeof value, sampleValue: inlineRepr(value), comment: "max depth reached" });
@@ -59,16 +62,32 @@ function analyzeValue(
       // 展开数组内的对象字段
       const objects = slice.filter(isPlainObject);
       if (objects.length > 0) {
-        processArrayObjects(objects, path, result, seen, depth, maxDepth, maxArrayItems, maxKeysPerObject, sampleCount);
+        processArrayObjects(objects, path, result, seen, depth, maxDepth, maxArrayItems, maxKeysPerObject, sampleCount, recordCfg);
       }
 
       // 展开数组内的嵌套数组
       const arrays = slice.filter(Array.isArray) as any[][];
       if (arrays.length > 0) {
-        processArrayArrays(arrays, path, result, seen, depth, maxDepth, maxArrayItems, maxKeysPerObject, sampleCount);
+        processArrayArrays(arrays, path, result, seen, depth, maxDepth, maxArrayItems, maxKeysPerObject, sampleCount, recordCfg);
       }
     }
   } else if (isPlainObject(value)) {
+    const recordHit = detectHomogeneousRecord(value as Record<string, unknown>, recordCfg);
+    if (recordHit) {
+      const node: FlatSchemaItem = {
+        path,
+        type: "record",
+        keysCount: recordHit.keysCount,
+        sampleKeys: recordHit.sampleKeys,
+        recordOverlap: recordHit.overlap,
+        itemTypes: [{ type: "object", count: recordHit.keysCount }],
+        comment: `homogeneous record (sampled ${recordHit.samples.length}, keys overlap ${(recordHit.overlap * 100).toFixed(0)}%)`,
+      };
+      result.push(node);
+      processArrayObjects(recordHit.samples, path, result, seen, depth, maxDepth, maxArrayItems, maxKeysPerObject, sampleCount, recordCfg);
+      return;
+    }
+
     const allKeys = Object.keys(value);
     const truncKeys = allKeys.length > maxKeysPerObject;
     const keys = truncKeys ? allKeys.slice(0, maxKeysPerObject) : allKeys;
@@ -77,7 +96,7 @@ function analyzeValue(
     result.push(node);
 
     for (const key of keys) {
-      analyzeValue(value[key], appendPathKey(path, key), result, seen, depth + 1, maxDepth, maxArrayItems, maxKeysPerObject, sampleCount);
+      analyzeValue(value[key], appendPathKey(path, key), result, seen, depth + 1, maxDepth, maxArrayItems, maxKeysPerObject, sampleCount, recordCfg);
     }
   } else {
     // 标量 / 非标准类型叶子节点
@@ -134,7 +153,8 @@ function processArrayObjects(
   maxDepth: number,
   maxArrayItems: number,
   maxKeysPerObject: number,
-  sampleCount: number
+  sampleCount: number,
+  recordCfg: ReturnType<typeof mergeRecordDetectOpts>
 ) {
   const allKeys = new Set<string>();
   for (const obj of objects) {
@@ -155,7 +175,7 @@ function processArrayObjects(
     if (types.size > 1) {
       pushMixedNode(fieldValues, fieldPath, presence, total, result, sampleCount);
     } else {
-      analyzeMergedValues(fieldValues, fieldPath, result, seen, depth, maxDepth, maxArrayItems, maxKeysPerObject, sampleCount, presence, total);
+      analyzeMergedValues(fieldValues, fieldPath, result, seen, depth, maxDepth, maxArrayItems, maxKeysPerObject, sampleCount, recordCfg, presence, total);
     }
   }
 }
@@ -170,7 +190,8 @@ function processArrayArrays(
   maxDepth: number,
   maxArrayItems: number,
   maxKeysPerObject: number,
-  sampleCount: number
+  sampleCount: number,
+  recordCfg: ReturnType<typeof mergeRecordDetectOpts>
 ) {
   const allItems = arrays.flat();
   const innerPath = appendInnerArray(path);
@@ -184,12 +205,12 @@ function processArrayArrays(
 
     const innerObjects = allItems.filter(isPlainObject);
     if (innerObjects.length > 0) {
-      processArrayObjects(innerObjects, innerPath, result, seen, depth + 1, maxDepth, maxArrayItems, maxKeysPerObject, sampleCount);
+      processArrayObjects(innerObjects, innerPath, result, seen, depth + 1, maxDepth, maxArrayItems, maxKeysPerObject, sampleCount, recordCfg);
     }
 
     const innerArrays = allItems.filter(Array.isArray) as any[][];
     if (innerArrays.length > 0) {
-      processArrayArrays(innerArrays, innerPath, result, seen, depth + 1, maxDepth, maxArrayItems, maxKeysPerObject, sampleCount);
+      processArrayArrays(innerArrays, innerPath, result, seen, depth + 1, maxDepth, maxArrayItems, maxKeysPerObject, sampleCount, recordCfg);
     }
   }
 
@@ -207,6 +228,7 @@ function analyzeMergedValues(
   maxArrayItems: number,
   maxKeysPerObject: number,
   sampleCount: number,
+  recordCfg: ReturnType<typeof mergeRecordDetectOpts>,
   presence: number,
   total: number
 ) {
@@ -243,7 +265,7 @@ function analyzeMergedValues(
       if (fieldTypes.size > 1) {
         pushMixedNode(fieldValues, fieldPath, fieldPresence, values.length, result, sampleCount);
       } else {
-        analyzeMergedValues(fieldValues, fieldPath, result, seen, depth + 1, maxDepth, maxArrayItems, maxKeysPerObject, sampleCount, fieldPresence, values.length);
+        analyzeMergedValues(fieldValues, fieldPath, result, seen, depth + 1, maxDepth, maxArrayItems, maxKeysPerObject, sampleCount, recordCfg, fieldPresence, values.length);
       }
     }
   } else if (type === "array") {
@@ -258,12 +280,12 @@ function analyzeMergedValues(
 
       const innerObjects = allItems.filter(isPlainObject);
       if (innerObjects.length > 0) {
-        processArrayObjects(innerObjects, appendInnerArray(path), result, seen, depth + 1, maxDepth, maxArrayItems, maxKeysPerObject, sampleCount);
+        processArrayObjects(innerObjects, appendInnerArray(path), result, seen, depth + 1, maxDepth, maxArrayItems, maxKeysPerObject, sampleCount, recordCfg);
       }
 
       const innerArrays = allItems.filter(Array.isArray) as any[][];
       if (innerArrays.length > 0) {
-        processArrayArrays(innerArrays, appendInnerArray(path), result, seen, depth + 1, maxDepth, maxArrayItems, maxKeysPerObject, sampleCount);
+        processArrayArrays(innerArrays, appendInnerArray(path), result, seen, depth + 1, maxDepth, maxArrayItems, maxKeysPerObject, sampleCount, recordCfg);
       }
     }
 

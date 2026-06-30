@@ -82,6 +82,8 @@ function hotspotLine(item: FlatSchemaItem): string {
   const parts: string[] = [`\`${item.path}\``];
   if (item.type === "mixed" && item.variants?.length) {
     parts.push(`mixed (${item.variants.map((v) => v.type).join("|")})`);
+  } else if (item.type === "record" && item.keysCount) {
+    parts.push(`record ${item.keysCount} keys`);
   } else if (item.type === "object" && item.keys) {
     parts.push(`${item.keys.length} keys`);
   } else if (item.type === "array" && item.itemTypes) {
@@ -178,9 +180,14 @@ export function renderOverviewMarkdown(opts: OverviewOptions): string {
     sections.push("");
     sections.push("**dict-key 对象**");
     for (const obj of dictObjs) {
-      const sample = obj.keys!.slice(0, 3).map((k) => `\`${k}\``).join(", ");
-      const more = obj.keys!.length > 3 ? ` … +${obj.keys!.length - 3}` : "";
-      sections.push(`- \`${obj.path}\` — ${obj.keys!.length} keys (例: ${sample}${more})`);
+      if (obj.type === "record") {
+        const sample = (obj.sampleKeys ?? []).slice(0, 3).map((k) => `\`${k}\``).join(", ");
+        sections.push(`- \`${obj.path}\` — record ${obj.keysCount ?? 0} keys (例: ${sample})`);
+      } else {
+        const sample = obj.keys!.slice(0, 3).map((k) => `\`${k}\``).join(", ");
+        const more = obj.keys!.length > 3 ? ` … +${obj.keys!.length - 3}` : "";
+        sections.push(`- \`${obj.path}\` — ${obj.keys!.length} keys (例: ${sample}${more})`);
+      }
     }
   }
   sections.push(
@@ -229,12 +236,11 @@ export function renderOverviewMarkdown(opts: OverviewOptions): string {
 
   // §6 Compare
   sections.push(`## 6. Compare`);
-  if (dictObjs.length >= 1 && dictObjs[0].keys && dictObjs[0].keys.length >= 2) {
-    const base = dictObjs[0].path;
-    const k0 = dictObjs[0].keys[0];
-    const k1 = dictObjs[0].keys[1];
-    const p0 = `${base}.${k0}`;
-    const p1 = `${base}.${k1}`;
+  if (dictObjs.length >= 1 && dictObjs[0].type === "record" && (dictObjs[0].sampleKeys?.length ?? 0) >= 2) {
+    const k0 = dictObjs[0].sampleKeys![0];
+    const k1 = dictObjs[0].sampleKeys![1];
+    const p0 = `${dictObjs[0].path}.${k0}`;
+    const p1 = `${dictObjs[0].path}.${k1}`;
     sections.push(`- 检测到并列 dict-key，可对比两条路径，例如:`);
     sections.push(`  \`json-analyze compare '${p0}' '${p1}' ${f} --fields 'id,name'\``);
   } else {
