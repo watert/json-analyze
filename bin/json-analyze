@@ -3,7 +3,7 @@
 // 新增: --jsonl flag 启用 JSONL 流式模式
 import minimist from "minimist";
 import { analyzeJSON } from "../src/analyzer.js";
-import { renderMarkdown } from "../src/format.js";
+import { renderAnalyzeMarkdown, renderMarkdown } from "../src/format.js";
 import { filterJSON, searchJSON, globToRegex, type FilterQuery } from "../src/filter.js";
 import { getByPath, getClosestKeys } from "../src/paths.js";
 import { getFieldValues, getPathCardinality, getObjectKeys } from "../src/explorer.js";
@@ -64,7 +64,7 @@ Input (多文件):
 
 Commands:
   (default)  无子命令 → overview；--format json
-  analyze    分析 JSON 结构，输出扁平 schema (md|json)
+  analyze    分析 JSON 结构 (md|md-flat|tree|xml|json)
   filter     按查询条件检索 JSON 内容
   summary    输出 JSON 结构高层摘要
   get        按路径提取数据值
@@ -86,7 +86,7 @@ Run 'json-analyze <command> --help' for command-specific help.
        cat file.jsonl | json-analyze analyze --jsonl [options]
 
 Options:
-  -f, --format   输出格式: md | json (默认: md)
+  -f, --format   输出格式: md | md-flat | tree | xml | json (默认: md，与 md-flat 同)
   -p, --pretty   与 --format json 配合时美化输出
       --jsonl         启用 JSONL 模式 (默认: 当作大数组, 一次性合并 schema)
       --per-line      配合 --jsonl, 改回逐行 schema (高级/超大文件用)
@@ -433,7 +433,9 @@ async function runAnalyze(rawArgv: string[]) {
   });
   if (argv.help) { printHelp("analyze"); return; }
   const format = argv.format as string;
-  if (!["md", "json"].includes(format)) throw new Error(`unknown format "${format}", expected "md"|"json"`);
+  const analyzeFormats = ["md", "md-flat", "tree", "xml", "json"];
+  if (!analyzeFormats.includes(format)) throw new Error(`unknown format "${format}", expected ${analyzeFormats.join("|")}`);
+  const mdOut = format !== "json";
   const analyzeOpts = {
     maxDepth: Number(argv["max-depth"]) || 32,
     maxArrayItems: Number(argv["max-items"]) || 5000,
@@ -448,7 +450,7 @@ async function runAnalyze(rawArgv: string[]) {
       for await (const { line, result: schema } of analyzeJSONL(source, analyzeOpts)) {
         if (format === "md") {
           console.log(`### line ${line}\n`);
-          console.log(renderMarkdown(schema));
+          console.log(renderAnalyzeMarkdown(schema, format as "md" | "md-flat" | "tree" | "xml"));
           console.log("");
         } else {
           console.log(JSON.stringify({ line, schema }));
@@ -469,9 +471,9 @@ async function runAnalyze(rawArgv: string[]) {
       return;
     }
     const schema = analyzeJSON(items, analyzeOpts);
-    if (format === "md") {
+    if (mdOut) {
       console.log(`> JSONL: ${totalLines} lines treated as one array of items\n`);
-      console.log(renderMarkdown(schema));
+      console.log(renderAnalyzeMarkdown(schema, format as "md" | "md-flat" | "tree" | "xml"));
     } else {
       outputResult({ totalLines, items: items.length, schema }, "json", !!argv.pretty);
     }

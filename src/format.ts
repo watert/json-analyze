@@ -1,6 +1,15 @@
 // 将 FlatSchemaItem[] 渲染为 Markdown 格式
 // 每个 item 作为一个独立 section，信息完整、无嵌套、AI 友好
+import { renderGroupedMarkdown } from "./format-tree.js";
 import type { FlatSchemaItem } from "./types.js";
+
+export type AnalyzeMdFormat = "md" | "md-flat" | "tree" | "xml";
+
+/** analyze 子命令 md 系输出 */
+export function renderAnalyzeMarkdown(items: FlatSchemaItem[], format: AnalyzeMdFormat): string {
+  if (format === "md-flat" || format === "md") return renderMarkdown(items);
+  return renderGroupedMarkdown(items, format === "xml" ? "xml" : "tree");
+}
 
 export function renderMarkdown(items: FlatSchemaItem[]): string {
   const sections: string[] = [];
@@ -29,7 +38,7 @@ function renderItem(item: FlatSchemaItem): string {
 }
 
 /** 构建类型标签，如 "object" / "array[4]" / "long-text[167]" */
-function buildTypeLabel(item: FlatSchemaItem): string {
+export function buildTypeLabel(item: FlatSchemaItem): string {
   if (item.type === "record" && item.keysCount != null) {
     return `record[${item.keysCount}]`;
   }
@@ -44,7 +53,7 @@ function buildTypeLabel(item: FlatSchemaItem): string {
 }
 
 /** 构建第二行详情 */
-function buildDetailLine(item: FlatSchemaItem): string | null {
+export function buildDetailLine(item: FlatSchemaItem): string | null {
   const lines: string[] = [];
 
   if (item.type === "record") {
@@ -98,7 +107,7 @@ function buildDetailLine(item: FlatSchemaItem): string | null {
 }
 
 /** 构建第三行补充信息 */
-function buildExtraLine(item: FlatSchemaItem): string | null {
+export function buildExtraLine(item: FlatSchemaItem): string | null {
   const extras: string[] = [];
 
   if (item.note) {

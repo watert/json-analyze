@@ -1,7 +1,7 @@
 // 多文件批处理: analyze / filter / search / summary
 import { analyzeJSON } from "./analyzer.js";
 import { filterJSON, searchJSON, type FilterOptions, type SearchOptions } from "./filter.js";
-import { renderMarkdown } from "./format.js";
+import { renderAnalyzeMarkdown, type AnalyzeMdFormat } from "./format.js";
 import { readJsonFromTarget } from "./io.js";
 import { isStdinTarget, type InputTarget } from "./input-resolve.js";
 import { mergeAnalyzeSummaries } from "./batch-summary.js";
@@ -41,14 +41,15 @@ export async function runAnalyzeOnTargets(
   const multi = targets.length > 1;
   await forEachJsonFile(targets, mode, (label, data) => {
     const schema = analyzeJSON(data, analyzeOpts);
-    if (multi && format === "md") console.log(`## ${label}\n`);
+    const mdLike = ["md", "md-flat", "tree", "xml"].includes(format);
+    if (multi && mdLike) console.log(`## ${label}\n`);
     if (listKeysHandler) {
       listKeysHandler(schema, label);
       return;
     }
-    if (format === "md") console.log(renderMarkdown(schema));
+    if (mdLike) console.log(renderAnalyzeMarkdown(schema, format as AnalyzeMdFormat));
     else console.log(JSON.stringify(multi ? { file: label, schema } : schema, null, pretty ? 2 : 0));
-    if (multi && format === "md") console.log("");
+    if (multi && mdLike) console.log("");
   });
 }
 
