@@ -10,7 +10,7 @@ import {
   type WalkValueParams,
 } from "./analyzer-walk.js";
 import { appendPathKey, appendArrayFieldKey, appendInnerArray } from "./path-utils.js";
-import { detectHomogeneousRecord } from "./dict-record.js";
+import { detectHomogeneousRecord, mergeObjectSamplesToBag } from "./dict-record.js";
 import type { FlatSchemaItem, ItemTypeEntry, VariantEntry, AnalyzeOptions } from "./types.js";
 
 /** 将任意 JSON 数据转换为扁平化 schema 数组 */
@@ -65,7 +65,15 @@ function walkValue({ ctx, value, path, depth = 0 }: WalkValueParams): void {
         itemTypes: [{ type: "object", count: recordHit.keysCount }],
         comment: `homogeneous record (sampled ${recordHit.samples.length}, keys overlap ${(recordHit.overlap * 100).toFixed(0)}%)`,
       });
-      walkArrayObjects({ ctx, objects: recordHit.samples as object[], path, depth });
+      if (recordHit.scalarValueType) {
+        result.push({
+          path: appendArrayFieldKey(path, recordHit.scalarValueType),
+          type: recordHit.scalarValueType,
+          comment: `record scalar field (homogeneous)`,
+        });
+      } else {
+        walkArrayObjects({ ctx, objects: recordHit.samples as object[], path, depth });
+      }
       return;
     }
 
@@ -140,10 +148,27 @@ function walkMergedValues({ ctx, values, path, depth, presence, total }: WalkMer
       return;
     }
 
-    const allKeys = new Set<string>();
-    for (const obj of values) {
-      if (isPlainObject(obj)) Object.keys(obj as object).forEach((k) => allKeys.add(k));
+    const plain = values.filter(isPlainObject) as object[];
+    const mergedBag = mergeObjectSamplesToBag(plain);
+    const recordHit = detectHomogeneousRecord(mergedBag, ctx.recordCfg);
+    if (recordHit && Object.keys(mergedBag).length >= 2) {
+      result.push({
+        path,
+        type: "record",
+        keysCount: recordHit.keysCount,
+        sampleKeys: recordHit.sampleKeys,
+        recordOverlap: recordHit.overlap,
+        presence,
+        note,
+        itemTypes: [{ type: "object", count: recordHit.keysCount }],
+        comment: `homogeneous record (merged ${plain.length} samples, keys overlap ${(recordHit.overlap * 100).toFixed(0)}%)`,
+      });
+      walkArrayObjects({ ctx, objects: recordHit.samples as object[], path, depth });
+      return;
     }
+
+    const allKeys = new Set<string>();
+    for (const obj of plain) Object.keys(obj as object).forEach((k) => allKeys.add(k));
     const keysArr = Array.from(allKeys);
     const truncKeys = keysArr.length > maxKeysPerObject;
     const keys = truncKeys ? keysArr.slice(0, maxKeysPerObject) : keysArr;

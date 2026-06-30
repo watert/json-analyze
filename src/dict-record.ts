@@ -33,11 +33,35 @@ function jaccard(a: Set<string>, b: Set<string>): number {
   return union === 0 ? 1 : inter / union;
 }
 
-/** 动态 entity id（数字 / 长串），区别于 users、answers 等固定 slice 名 */
+/** 动态 entity id（数字 / 长串 / v2 资源 hash），区别于 users、answers 等固定 slice 名 */
 export function isDynamicRecordKey(key: string): boolean {
   if (/^\d{10,}$/.test(key)) return true;
   if (/^\d+$/.test(key) && key.length >= 6) return true;
+  if (/^v2[0-9a-f]{20,}$/i.test(key)) return true;
   return false;
+}
+
+/** 合并多份 object 样本为一条 id map，用于数组字段下「每元素 1 个动态 key」的场景 */
+export function mergeObjectSamplesToBag(values: object[]): Record<string, unknown> {
+  const bag: Record<string, unknown> = {};
+  for (const obj of values) {
+    if (!isPlainObject(obj)) continue;
+    for (const [k, v] of Object.entries(obj)) bag[k] = v;
+  }
+  return bag;
+}
+
+/** 子 value 仅标量/浅层时允许 1 个 key 即参与同质判定 */
+function isRecordValueShape(v: unknown): v is object {
+  if (!isPlainObject(v)) return false;
+  const rec = v as Record<string, unknown>;
+  const keys = Object.keys(rec);
+  if (keys.length >= MIN_KEYS_FOR_SAMPLE) return true;
+  if (keys.length === 0) return false;
+  return keys.every((k) => {
+    const ty = typeof rec[k];
+    return ty === "string" || ty === "number" || ty === "boolean" || rec[k] === null;
+  });
 }
 
 /** Redux entities 下固定 slice 名（非 id map） */
@@ -55,8 +79,7 @@ export function looksLikeEntitySliceBag(objKeys: string[]): boolean {
 }
 
 function isNonemptyObject(v: unknown): v is object {
-  if (!isPlainObject(v)) return false;
-  return Object.keys(v as object).length >= MIN_KEYS_FOR_SAMPLE;
+  return isRecordValueShape(v);
 }
 
 export function avgKeyOverlap(samples: object[]): number {
@@ -91,6 +114,36 @@ export interface RecordDetectResult {
   overlap: number;
   keysCount: number;
   sampleKeys: string[];
+  /** 动态 key → 同质标量 */
+  scalarValueType?: string;
+}
+
+
+function scalarTypeOf(v: unknown): string | null {
+  if (v === null) return "null";
+  const ty = typeof v;
+  if (ty === "string" || ty === "number" || ty === "boolean") return ty;
+  return null;
+}
+
+function detectDynamicScalarRecord(obj: Record<string, unknown>, cfg: RecordDetectConfig): RecordDetectResult | null {
+  const entries = Object.entries(obj);
+  if (entries.length < 2) return null;
+  const keys = entries.map(([k]) => k);
+  const dynamicRatio = keys.filter((k) => isDynamicRecordKey(k)).length / keys.length;
+  if (dynamicRatio < 0.6) return null;
+  const types = new Set(entries.map(([, v]) => scalarTypeOf(v)).filter(Boolean) as string[]);
+  if (types.size !== 1) return null;
+  const count = entries.length;
+  const minRequired = count >= cfg.recordMinValues ? cfg.recordMinValues : count >= 3 ? 3 : cfg.recordMinValues;
+  if (count < minRequired) return null;
+  return {
+    samples: [],
+    overlap: 1,
+    keysCount: count,
+    sampleKeys: keys.slice(0, 5),
+    scalarValueType: [...types][0],
+  };
 }
 
 export function detectHomogeneousRecord(
@@ -100,9 +153,11 @@ export function detectHomogeneousRecord(
   if (!cfg.recordDetect) return null;
   const entries = Object.entries(obj);
   const objectEntries = entries.filter(([, v]) => isPlainObject(v)) as [string, object][];
-  const nonemptyEntries = objectEntries.filter(([, v]) => Object.keys(v).length >= MIN_KEYS_FOR_SAMPLE);
+  const objectRatio = objectEntries.length / Math.max(1, entries.length);
+  if (objectRatio < 0.85) return detectDynamicScalarRecord(obj, cfg);
+
+  const nonemptyEntries = objectEntries.filter(([, v]) => isRecordValueShape(v));
   if (nonemptyEntries.length < 2) return null;
-  if (objectEntries.length / entries.length < 0.85) return null;
 
   const objKeys = objectEntries.map(([k]) => k);
   if (looksLikeEntitySliceBag(objKeys)) return null;
