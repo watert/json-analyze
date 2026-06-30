@@ -1,10 +1,10 @@
 ---
 name: json-schema-analyzer
 description: Analyze arbitrary JSON data and convert it into a flattened schema array, or filter/query JSON content with auto-inferred types. v2.2 adds cross-node wildcard (*/[] on dict), filter expressions ([?key~pattern]), path diagnostics (getClosestKeys), and multi-path comparison (compare). v2.3 adds JSONL streaming protocol — async generator based parseJSONL/analyzeJSONL/filterJSONL/searchJSONL with zero-copy line splitting for arbitrary-size JSONL files. Triggers when the user needs to understand JSON structure, find data by pattern, compare values across paths, get a compact schema digest for LLM prompt injection, or stream-process JSONL files.
-version: 2.3.1
+version: 2.6.0
 ---
 
-# json-analyze — JSON Schema Analyzer & Filter v2.3
+# json-analyze — JSON Schema Analyzer & Filter v2.5
 
 `json-analyze` 是一个轻量 JSON 工具集，提供：
 
@@ -211,9 +211,23 @@ const c = compactSchema(schema);
 // "{ users: [id: number, name: string, tags: [string]?, active?: boolean] }"
 ```
 
-### `renderMarkdown(items: FlatSchemaItem[]): string`
+### `renderAnalyzeMarkdown` / `renderGroupedFlatMarkdown` (v2.6)
 
-将 schema 数组渲染为 Markdown 文本。
+`analyze` CLI 默认 **`-f md`**：`renderGroupedFlatMarkdown` — 顶部 Top paths 摘要、正文 **`<record>`** 全字段 / **`<group>`** 嵌套分节（object 按父 path 一节 + 子弹；同质 map entry 只 `fields per entry` 一次，不为每个动态 key 单独成节）、超预算时正文底部 **`## Compressed groups (digest)`** + **`<record-digest>`**（`keyNames` + `_drill_`）。
+
+| `-f` | 行为 |
+|------|------|
+| `md` | 分层 MD + record/group（默认，详情预算 **50KB** `--max-detail-bytes 51200`；超预算至少 **5** 个大组 digest） |
+| `md-flat` | 全量扁平 path（`--path-prefix` drill 子树也用此格式） |
+| `json` | schema JSON |
+
+```typescript
+import { renderAnalyzeMarkdown, renderGroupedFlatMarkdown, renderMarkdown } from "json-analyze";
+renderAnalyzeMarkdown(schema, "md", { maxDetailBytes: 51200, drillFile: "data.json", top: 10 });
+renderAnalyzeMarkdown(schema, "md-flat");
+```
+
+**Record 检测 (v2.5+)**：小样本高 overlap、`v2[hex]`、**walkMergedValues** 合并多样本、`标量同质 map`（`recordMinValues` 等）。629 fixture：`articles` / `users` record 见 `dict-record.test.ts`。
 
 ### JSONL 流式 API (v2.3 新增)
 
@@ -364,7 +378,12 @@ json-analyze compare \
 json-analyze data.json
 cat data.json | json-analyze
 
-# analyze (全量 schema)
+# analyze (默认 md 分层 + 50KB 预算；-f md-flat 扁平)
+json-analyze analyze data.json
+json-analyze analyze data.json --max-detail-bytes 51200 --top-summary 10
+json-analyze analyze data.json --path-prefix 'root.entities' -f md-flat
+json-analyze analyze data.json -f md-flat
+json-analyze analyze data.json -f json
 json-analyze analyze data.json --max-depth 16 --max-items 1000
 cat data.json | json-analyze analyze
 
@@ -428,7 +447,8 @@ cat huge.jsonl | json-analyze explore --jsonl 'items[].role'
 - **`compare` (v2.2)**: 多路径取值对比, `--fields` 展平子字段, `--labels` 自定义列名
 - **`analyze --list-keys --path-glob --fold` (v2.2)**: 限制 key 列表范围 + 折叠叶子节点
 - **JSONL 流式模式 (v2.3)**: `--jsonl` 启用逐行 async generator 处理，支持任意大小文件; 错误行默认 skip + stderr 警告，不影响有效行; `BunFile` 走零拷贝 stream，stdin 走 AsyncIterable 喂入; `summary --jsonl` 跨行聚合 stats
-- **默认 overview (v2.4)**: `json-analyze [file]` 输出六段 Markdown 报告；`analyze` 仍为全量 schema；库导出 `renderOverviewMarkdown` / `buildOverviewJSON`
+- **默认 overview (v2.4)**: `json-analyze [file]` 六段 Markdown；库 `renderOverviewMarkdown` / `buildOverviewJSON`
+- **analyze 默认 md (v2.6)**: Top 摘要 + record/group 嵌套；同质 map 不逐 entry 成节；超 50KB → 底部 ≥5 条 record-digest；drill `--path-prefix` + `-f md-flat`
 - **`analyze --jsonl` 默认按大数组处理 (v2.3.1)**: 把所有行合并为 `[]` 调一次 `analyzeJSON`, 输出统一 schema 含 presence/optional/mixed 跨行统计 (类似 SQL DESCRIBE); 加 `--per-line` 切回逐行 (高级 / 调试 / GB 级文件); `filter/search/get/explore --jsonl` 仍保持 per-line (天然按行查的语义)
 
 ## 相关文档

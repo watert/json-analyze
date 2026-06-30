@@ -56,19 +56,18 @@ cat data.json | json-analyze
 json-analyze data.json --format json --pretty
 ```
 
-#### `analyze` — 全量 flat schema
+#### `analyze` — schema 详情（默认分层 MD）
 
 ```bash
-# Markdown 全量结构表
+# 默认 -f md：Top 摘要 + record/group 嵌套；超 50KB 底部 record-digest
 bun bin/json-analyze analyze data.json
 
-# 规模控制 (大文件防护)
 bun bin/json-analyze analyze data.json --max-depth 16 --max-items 1000 --max-keys 200
-
-# 输出 JSON
+bun bin/json-analyze analyze data.json --max-detail-bytes 51200 --top-summary 10
+bun bin/json-analyze analyze data.json --path-prefix 'root.entities.users' -f md-flat
+bun bin/json-analyze analyze data.json -f md-flat
 bun bin/json-analyze analyze data.json --format json --pretty
 
-# 从 stdin 读取
 cat data.json | bun bin/json-analyze analyze
 ```
 
