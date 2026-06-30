@@ -85,11 +85,9 @@ export function buildDetailLine(item: FlatSchemaItem): string | null {
   return lines.length > 0 ? lines.join("\n") : null;
 }
 
-export function buildExtraLine(item: FlatSchemaItem): string | null {
-  const extras: string[] = [];
-  if (item.note) extras.push(`note: ${item.note}`);
-  if (item.comment) extras.push(`comment: ${item.comment}`);
-  return extras.length > 0 ? extras.join(" | ") : null;
+/** analyze 展示省略 note/comment（节点仍带字段，overview 等另读 item.note） */
+export function buildExtraLine(_item: FlatSchemaItem): string | null {
+  return null;
 }
 
 export function inlineValue(v: any): string {

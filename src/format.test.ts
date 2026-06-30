@@ -80,15 +80,12 @@ items: boolean(1)=true, number(1)=123, object(2)
 
 **root.arr[].date** — date
 sample: "2025-04-02"
-note: present in 2/2 objects
 
 **root.arr[].msg** — string
 sample: "hello"
-note: present in 2/2 objects
 
 **root.arr[].foo** — string
-sample: "bar"
-note: present in 1/2 objects (optional)`
+sample: "bar"`
     );
   });
 
@@ -105,8 +102,7 @@ keys: matrix
 items: array(3)
 
 **root.matrix[]** — array[6]
-items: number(6)=1, 2, 3
-note: inner array`
+items: number(6)=1, 2, 3`
     );
   });
 
@@ -128,12 +124,10 @@ items: object(3)
 
 **root.items[].id** — number
 sample: 1
-note: present in 3/3 objects
 
 **root.items[].value** — mixed
 variants: string(2)="hello", "world", number(1)=42
-sample: "hello"
-note: present in 3/3 objects`
+sample: "hello"`
     );
   });
 
@@ -149,7 +143,6 @@ keys: data, items
 
 **root.data** — array[0]
 items: (empty)
-comment: empty array
 
 **root.items** — array[2]
 items: null(2)`
