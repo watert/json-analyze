@@ -15,18 +15,18 @@ describe("format-tree", () => {
     expect(users?.children.some((c) => c.path === "root.users[].id")).toBe(true);
   });
 
-  it("renderTreeMarkdown snapshot 片段", () => {
+  it("renderTreeMarkdown 语义 tag 包裹", () => {
     const schema = analyzeJSON({ id: 1, meta: { a: 1, b: 2 } });
     const md = renderTreeMarkdown(schema);
-    expect(md).toContain("### root —");
-    expect(md).toContain("root.meta");
-    expect(md).toContain("root.id");
+    expect(md).toContain("### root");
+    expect(md).toMatch(/<id path="root\.id"/);
+    expect(md).toMatch(/<meta /);
   });
 
-  it("renderXmlMarkdown 含 field 标签", () => {
+  it("renderXmlMarkdown 与 tree 同语义 tag", () => {
     const schema = analyzeJSON({ id: 1, meta: { a: 1 } });
     const xml = renderXmlMarkdown(schema);
-    expect(xml).toMatch(/<field name="id"/);
-    expect(xml).toMatch(/<meta /);
+    expect(xml).toMatch(/<id path="root\.id"/);
+    expect(xml).toMatch(/<meta type=/);
   });
 });

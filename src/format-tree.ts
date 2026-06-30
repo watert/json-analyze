@@ -1,4 +1,4 @@
-// 两层级 schema 输出: 父 object/record 包一层，子字段一层 (tree | xml)
+// 两层级 schema 输出: 语义 tag 包裹 + 子字段 (非裸 XML 文档)
 import { getParent } from "./path-utils.js";
 import type { FlatSchemaItem } from "./types.js";
 import { buildDetailLine, buildExtraLine, buildTypeLabel } from "./format.js";
@@ -10,7 +10,6 @@ export interface TwoLevelSection {
   children: FlatSchemaItem[];
 }
 
-/** 容器节点与其直接子字段 (最多两层展示) */
 export function groupSchemaTwoLevels(items: FlatSchemaItem[]): { sections: TwoLevelSection[]; orphans: FlatSchemaItem[] } {
   const covered = new Set<string>();
   const sections: TwoLevelSection[] = [];
@@ -28,20 +27,26 @@ export function groupSchemaTwoLevels(items: FlatSchemaItem[]): { sections: TwoLe
   return { sections, orphans };
 }
 
-function tagName(path: string): string {
-  const segs = path.replace(/^root\.?/, "").split(".");
-  const last = segs[segs.length - 1] ?? "root";
-  return last.replace(/\[\]/g, "").replace(/[^a-zA-Z0-9_-]/g, "_") || "node";
+export function semanticTagFromPath(path: string): string {
+  const tail = path.replace(/^root\.?/, "").split(".").pop() ?? "root";
+  const base = tail.replace(/\[\]/g, "").replace(/[^a-zA-Z0-9_-]/g, "_");
+  return base || "node";
 }
 
-function renderFieldBlock(item: FlatSchemaItem, indent: string): string {
-  const typeLabel = buildTypeLabel(item);
+function fieldSummary(item: FlatSchemaItem): string {
+  const parts: string[] = [buildTypeLabel(item)];
   const detail = buildDetailLine(item);
+  if (detail) parts.push(detail.replace(/\n/g, "; "));
   const extra = buildExtraLine(item);
-  const lines = [`${indent}**${item.path}** — \`${typeLabel}\``];
-  if (detail) lines.push(`${indent}${detail.split("\n").join(`\n${indent}`)}`);
-  if (extra) lines.push(`${indent}${extra}`);
-  return lines.join("\n");
+  if (extra) parts.push(extra);
+  return parts.join(" — ");
+}
+
+function renderFieldInTag(item: FlatSchemaItem, indent: string): string {
+  const tag = semanticTagFromPath(item.path);
+  const name = item.path.split(".").pop() ?? item.path;
+  const summary = fieldSummary(item);
+  return `${indent}<${tag} path="${item.path}" name="${name}">${summary}</${tag}>`;
 }
 
 export function renderTreeMarkdown(items: FlatSchemaItem[]): string {
@@ -49,47 +54,21 @@ export function renderTreeMarkdown(items: FlatSchemaItem[]): string {
   const blocks: string[] = [];
 
   for (const { parent, children } of sections) {
-    const head = `### ${parent.path} — \`${buildTypeLabel(parent)}\``;
-    const meta = [buildDetailLine(parent), buildExtraLine(parent)].filter(Boolean).join("\n");
-    const body = children.map((c) => renderFieldBlock(c, "  ")).join("\n\n");
-    blocks.push([head, meta, body].filter(Boolean).join("\n\n"));
+    const pTag = semanticTagFromPath(parent.path);
+    const head = `### ${parent.path}`;
+    const pMeta = [buildTypeLabel(parent), buildDetailLine(parent), buildExtraLine(parent)].filter(Boolean).join("\n");
+    const inner = children.map((c) => renderFieldInTag(c, "  ")).join("\n");
+    blocks.push(`${head}\n\n<${pTag} type="${buildTypeLabel(parent)}" path="${parent.path}">\n${pMeta ? `${pMeta}\n` : ""}${inner}\n</${pTag}>`);
   }
 
-  if (orphans.length) blocks.push(orphans.map((c) => renderFieldBlock(c, "")).join("\n\n"));
+  if (orphans.length) blocks.push(orphans.map((c) => renderFieldInTag(c, "")).join("\n"));
   return blocks.join("\n\n");
 }
 
 export function renderXmlMarkdown(items: FlatSchemaItem[]): string {
-  const { sections, orphans } = groupSchemaTwoLevels(items);
-  const chunks: string[] = [];
-
-  for (const { parent, children } of sections) {
-    const pTag = tagName(parent.path);
-    const attrs = [`type="${buildTypeLabel(parent)}"`];
-    if (parent.keysCount != null) attrs.push(`keysCount="${parent.keysCount}"`);
-    if (parent.recordOverlap != null) attrs.push(`overlap="${(parent.recordOverlap * 100).toFixed(0)}%"`);
-    const childXml = children
-      .map((c) => {
-        const inner = buildDetailLine(c) ?? buildExtraLine(c) ?? "";
-        const sample =
-          c.sampleValue !== undefined && !c.longText
-            ? ` sample="${String(c.sampleValue).replace(/"/g, "'")}"`
-            : "";
-        const name = c.path.split(".").pop() ?? c.path;
-        return `  <field name="${name}" type="${buildTypeLabel(c)}"${sample}>${inner ? `\n    ${inner}\n  ` : ""}</field>`;
-      })
-      .join("\n");
-    chunks.push(`<${pTag} ${attrs.join(" ")}>\n${childXml}\n</${pTag}>`);
-  }
-
-  if (orphans.length) {
-    chunks.push(
-      `<orphan>\n${orphans.map((c) => `  <field name="${c.path}" type="${buildTypeLabel(c)}"/>`).join("\n")}\n</orphan>`
-    );
-  }
-  return chunks.join("\n\n");
+  return renderTreeMarkdown(items);
 }
 
-export function renderGroupedMarkdown(items: FlatSchemaItem[], format: TreeFormat): string {
-  return format === "xml" ? renderXmlMarkdown(items) : renderTreeMarkdown(items);
+export function renderGroupedMarkdown(items: FlatSchemaItem[], _format: TreeFormat): string {
+  return renderTreeMarkdown(items);
 }
