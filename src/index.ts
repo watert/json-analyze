@@ -6,6 +6,13 @@ export { filterJSON, searchJSON } from "./filter.js";
 export { getByPath, readByKey, getClosestKeys } from "./paths.js";
 export { getFieldValues, getPathCardinality, findPathsByType, getObjectKeys } from "./explorer.js";
 export { summarizeSchema, compactSchema } from "./summarize.js";
+export {
+  renderOverviewMarkdown,
+  buildOverviewJSON,
+  pickHotspots,
+  suggestQuickPaths,
+} from "./overview.js";
+export type { OverviewOptions, OverviewInputMeta, OverviewJSON } from "./overview.js";
 export { splitPath } from "./path-utils.js";
 export {
   parseJSONL,

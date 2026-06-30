@@ -360,7 +360,11 @@ json-analyze compare \
 ## CLI 工具
 
 ```bash
-# analyze
+# 默认 overview
+json-analyze data.json
+cat data.json | json-analyze
+
+# analyze (全量 schema)
 json-analyze analyze data.json --max-depth 16 --max-items 1000
 cat data.json | json-analyze analyze
 
@@ -424,6 +428,7 @@ cat huge.jsonl | json-analyze explore --jsonl 'items[].role'
 - **`compare` (v2.2)**: 多路径取值对比, `--fields` 展平子字段, `--labels` 自定义列名
 - **`analyze --list-keys --path-glob --fold` (v2.2)**: 限制 key 列表范围 + 折叠叶子节点
 - **JSONL 流式模式 (v2.3)**: `--jsonl` 启用逐行 async generator 处理，支持任意大小文件; 错误行默认 skip + stderr 警告，不影响有效行; `BunFile` 走零拷贝 stream，stdin 走 AsyncIterable 喂入; `summary --jsonl` 跨行聚合 stats
+- **默认 overview (v2.4)**: `json-analyze [file]` 输出六段 Markdown 报告；`analyze` 仍为全量 schema；库导出 `renderOverviewMarkdown` / `buildOverviewJSON`
 - **`analyze --jsonl` 默认按大数组处理 (v2.3.1)**: 把所有行合并为 `[]` 调一次 `analyzeJSON`, 输出统一 schema 含 presence/optional/mixed 跨行统计 (类似 SQL DESCRIBE); 加 `--per-line` 切回逐行 (高级 / 调试 / GB 级文件); `filter/search/get/explore --jsonl` 仍保持 per-line (天然按行查的语义)
 
 ## 相关文档

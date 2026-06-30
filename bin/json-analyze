@@ -9,6 +9,7 @@ import { getByPath, getClosestKeys } from "../src/paths.js";
 import { getFieldValues, getPathCardinality, getObjectKeys } from "../src/explorer.js";
 import { splitPath } from "../src/path-utils.js";
 import { summarizeSchema, compactSchema } from "../src/summarize.js";
+import { renderOverviewMarkdown, buildOverviewJSON } from "../src/overview.js";
 import {
   parseJSONL,
   analyzeJSONL,
@@ -21,6 +22,7 @@ import {
 // ---------- 通用 ----------
 
 const SUB_COMMANDS = ["analyze", "filter", "summary", "get", "explore", "search", "compare", "help"] as const;
+const KNOWN_COMMANDS = new Set<string>(SUB_COMMANDS);
 type SubCommand = (typeof SUB_COMMANDS)[number];
 
 /** 帮助文本 */
@@ -29,10 +31,13 @@ function printHelp(cmd?: SubCommand) {
     console.log(`json-analyze — JSON 工具集 v2
 
 Usage:
+  json-analyze [file]              # 默认: Overview 体检报告
+  cat data.json | json-analyze
   json-analyze <command> [options] [file]
   cat data.jsonl | json-analyze <command> --jsonl [options]
 
 Commands:
+  (default)  无子命令 → overview；--format json
   analyze    分析 JSON 结构，输出扁平 schema (md|json)
   filter     按查询条件检索 JSON 内容
   summary    输出 JSON 结构高层摘要
@@ -277,6 +282,80 @@ function parseQueries(tokens: string[], lenient = false): FilterQuery[] {
     queries.push({ key, op: op as FilterQuery["op"], value: rawVal });
   }
   return queries;
+}
+
+function rootTypeOf(data: unknown): string {
+  if (data === null) return "null";
+  if (Array.isArray(data)) return "array";
+  return typeof data;
+}
+
+function drillLine(...cmds: string[]): string {
+  return `\n> 展开: ${cmds.map((c) => `\`${c}\``).join(" · ")}\n`;
+}
+
+// ---------- 默认: overview ----------
+
+async function runOverview(rawArgv: string[]) {
+  const argv = minimist(rawArgv, {
+    string: ["format"],
+    boolean: ["help", "pretty", "jsonl"],
+    alias: { h: "help", f: "format", p: "pretty" },
+    default: { format: "md", "max-depth": 32, "max-items": 5000, "max-keys": 500 },
+  });
+  if (argv.help) {
+    printHelp("help");
+    return;
+  }
+  const format = argv.format as string;
+  if (!["md", "json"].includes(format)) throw new Error(`unknown format "${format}", expected "md"|"json"`);
+  const analyzeOpts = {
+    maxDepth: Number(argv["max-depth"]) || 32,
+    maxArrayItems: Number(argv["max-items"]) || 5000,
+    maxKeysPerObject: Number(argv["max-keys"]) || 500,
+  };
+  const fileArg = argv._[0] as string | undefined;
+
+  if (argv.jsonl) {
+    const source = await loadJSONLInput(argv);
+    const stats = await aggregateAnalyzeJSONL(source);
+    const label = fileArg ?? "stdin (JSONL)";
+    const f = fileArg ?? "<file>";
+    if (format === "md") {
+      console.log(`# json-analyze overview — ${label}\n`);
+      console.log(`## 1. Snapshot (JSONL 聚合)`);
+      console.log(`- 总行数: ${stats.totalLines}，成功解析: ${stats.successfulLines}`);
+      console.log(`- 节点数: ${stats.totalNodes}，最大深度: ${stats.maxDepth}`);
+      console.log(drillLine(`json-analyze summary ${f} --jsonl`, `json-analyze analyze ${f} --jsonl`));
+      console.log(`\n## 2. Structure\n`);
+      console.log(`- arrays: ${stats.arraysCount} (${stats.emptyArrays} empty)`);
+      console.log(`- objects: ${stats.objectsCount}`);
+      console.log(`- mixed: ${stats.mixedFields} · long-text: ${stats.longTextFields}`);
+      console.log(drillLine(`json-analyze analyze ${f} --jsonl`, `json-analyze filter ${f} --jsonl key=value`));
+    } else {
+      outputResult({ mode: "jsonl-overview", stats, drillDown: ["analyze --jsonl", "summary --jsonl"] }, "json", !!argv.pretty);
+    }
+    return;
+  }
+
+  const data = await loadInput(argv);
+  const schema = analyzeJSON(data, analyzeOpts);
+  const summary = summarizeSchema(schema);
+  const overviewOpts = {
+    fileArg,
+    meta: {
+      sourceLabel: fileArg ?? "stdin",
+      rootType: rootTypeOf(data),
+      analyzeOpts,
+    },
+    schema,
+    summary,
+  };
+  if (format === "md") {
+    console.log(renderOverviewMarkdown(overviewOpts));
+  } else {
+    outputResult(buildOverviewJSON(overviewOpts), "json", !!argv.pretty);
+  }
 }
 
 // ---------- 子命令：analyze ----------
@@ -896,13 +975,16 @@ async function main() {
     return;
   }
 
-  const cmd = (argv._[0] as SubCommand) || "analyze";
-  const rest = process.argv.slice(3);
+  const first = argv._[0] as string | undefined;
+  const isSubCmd = first !== undefined && KNOWN_COMMANDS.has(first);
+  const rest = isSubCmd ? process.argv.slice(3) : process.argv.slice(2);
 
-  if (cmd === "help") { printHelp("help"); return; }
-  if (!SUB_COMMANDS.includes(cmd)) {
-    return runAnalyze(process.argv.slice(2));
+  if (!isSubCmd) {
+    return runOverview(process.argv.slice(2));
   }
+
+  const cmd = first as SubCommand;
+  if (cmd === "help") { printHelp("help"); return; }
 
   if (cmd === "analyze") return runAnalyze(rest);
   if (cmd === "filter") return runFilter(rest);

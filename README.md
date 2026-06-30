@@ -41,12 +41,22 @@ console.log(compactSchema(schema));
 
 ### 2. CLI 工具
 
-单一入口 `json-analyze`，含 5 个子命令：`analyze` | `filter` | `summary` | `get` | `explore`。
+单一入口 `json-analyze`。**无子命令**时输出 **Overview**（多 section 体检报告 + 各段底部 drill-down 命令）；深度模式用子命令。
 
-#### `analyze` — 分析 JSON 结构
+子命令：`analyze` | `filter` | `summary` | `get` | `explore` | `search` | `compare` | `help`
+
+#### 默认 Overview
 
 ```bash
-# 默认输出 Markdown
+json-analyze data.json
+cat data.json | json-analyze
+json-analyze data.json --format json --pretty
+```
+
+#### `analyze` — 全量 flat schema
+
+```bash
+# Markdown 全量结构表
 bun bin/json-analyze analyze data.json
 
 # 规模控制 (大文件防护)
