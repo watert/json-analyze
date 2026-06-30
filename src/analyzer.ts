@@ -1,53 +1,39 @@
 // JSON Schema Analyzer 核心实现
-// v2: 循环引用检测、规模控制、非标准JSON类型、路径转义
 import dayjs from "dayjs";
 import isPlainObject from "lodash/isPlainObject.js";
+import {
+  createAnalyzeWalkCtx,
+  type WalkArrayArraysParams,
+  type WalkArrayObjectsParams,
+  type WalkMergedValuesParams,
+  type WalkMixedParams,
+  type WalkValueParams,
+} from "./analyzer-walk.js";
 import { appendPathKey, appendArrayFieldKey, appendInnerArray } from "./path-utils.js";
-import { detectHomogeneousRecord, mergeRecordDetectOpts } from "./dict-record.js";
+import { detectHomogeneousRecord } from "./dict-record.js";
 import type { FlatSchemaItem, ItemTypeEntry, VariantEntry, AnalyzeOptions } from "./types.js";
 
-const DEFAULTS: Required<Pick<AnalyzeOptions, "maxDepth" | "maxArrayItems" | "maxKeysPerObject" | "sampleCount">> = {
-  maxDepth: 32,
-  maxArrayItems: 5000,
-  maxKeysPerObject: 500,
-  sampleCount: 3,
-};
-
 /** 将任意 JSON 数据转换为扁平化 schema 数组 */
-export function analyzeJSON(data: any, opts: AnalyzeOptions = {}): FlatSchemaItem[] {
-  const { maxDepth, maxArrayItems, maxKeysPerObject, sampleCount } = { ...DEFAULTS, ...opts };
-  const recordCfg = mergeRecordDetectOpts(opts);
-  const result: FlatSchemaItem[] = [];
-  const seen = new Set<object>();
-  analyzeValue(data, "root", result, seen, 0, maxDepth, maxArrayItems, maxKeysPerObject, sampleCount, recordCfg);
-  return result;
+export function analyzeJSON(data: unknown, opts: AnalyzeOptions = {}): FlatSchemaItem[] {
+  const ctx = createAnalyzeWalkCtx(opts);
+  walkValue({ ctx, value: data, path: "root", depth: 0 });
+  return ctx.result;
 }
 
-/** 递归分析单个值 */
-function analyzeValue(
-  value: any,
-  path: string,
-  result: FlatSchemaItem[],
-  seen: Set<object>,
-  depth: number,
-  maxDepth: number,
-  maxArrayItems: number,
-  maxKeysPerObject: number,
-  sampleCount: number,
-  recordCfg: ReturnType<typeof mergeRecordDetectOpts>
-) {
+function walkValue({ ctx, value, path, depth = 0 }: WalkValueParams): void {
+  const { maxDepth, maxArrayItems, maxKeysPerObject, sampleCount, recordCfg, result, seen } = ctx;
+
   if (depth > maxDepth) {
     result.push({ path, type: typeof value, sampleValue: inlineRepr(value), comment: "max depth reached" });
     return;
   }
 
-  // 循环引用检测
   if (value && typeof value === "object") {
-    if (seen.has(value)) {
+    if (seen.has(value as object)) {
       result.push({ path, type: "circular", comment: "circular reference" });
       return;
     }
-    seen.add(value);
+    seen.add(value as object);
   }
 
   if (Array.isArray(value)) {
@@ -56,25 +42,21 @@ function analyzeValue(
 
     if (value.length > 0) {
       const slice = value.length > maxArrayItems ? value.slice(0, maxArrayItems) : value;
-      const truncated = value.length > maxArrayItems;
-      if (truncated) node.comment = `truncated (${value.length} items → sampled ${maxArrayItems})`;
+      if (value.length > maxArrayItems) node.comment = `truncated (${value.length} items → sampled ${maxArrayItems})`;
 
-      // 展开数组内的对象字段
-      const objects = slice.filter(isPlainObject);
-      if (objects.length > 0) {
-        processArrayObjects(objects, path, result, seen, depth, maxDepth, maxArrayItems, maxKeysPerObject, sampleCount, recordCfg);
-      }
+      const objects = slice.filter(isPlainObject) as object[];
+      if (objects.length > 0) walkArrayObjects({ ctx, objects, path, depth });
 
-      // 展开数组内的嵌套数组
-      const arrays = slice.filter(Array.isArray) as any[][];
-      if (arrays.length > 0) {
-        processArrayArrays(arrays, path, result, seen, depth, maxDepth, maxArrayItems, maxKeysPerObject, sampleCount, recordCfg);
-      }
+      const arrays = slice.filter(Array.isArray) as unknown[][];
+      if (arrays.length > 0) walkArrayArrays({ ctx, arrays, path, depth });
     }
-  } else if (isPlainObject(value)) {
+    return;
+  }
+
+  if (isPlainObject(value)) {
     const recordHit = detectHomogeneousRecord(value as Record<string, unknown>, recordCfg);
     if (recordHit) {
-      const node: FlatSchemaItem = {
+      result.push({
         path,
         type: "record",
         keysCount: recordHit.keysCount,
@@ -82,13 +64,12 @@ function analyzeValue(
         recordOverlap: recordHit.overlap,
         itemTypes: [{ type: "object", count: recordHit.keysCount }],
         comment: `homogeneous record (sampled ${recordHit.samples.length}, keys overlap ${(recordHit.overlap * 100).toFixed(0)}%)`,
-      };
-      result.push(node);
-      processArrayObjects(recordHit.samples, path, result, seen, depth, maxDepth, maxArrayItems, maxKeysPerObject, sampleCount, recordCfg);
+      });
+      walkArrayObjects({ ctx, objects: recordHit.samples as object[], path, depth });
       return;
     }
 
-    const allKeys = Object.keys(value);
+    const allKeys = Object.keys(value as object);
     const truncKeys = allKeys.length > maxKeysPerObject;
     const keys = truncKeys ? allKeys.slice(0, maxKeysPerObject) : allKeys;
     const node: FlatSchemaItem = { path, type: "object", keys };
@@ -96,103 +77,40 @@ function analyzeValue(
     result.push(node);
 
     for (const key of keys) {
-      analyzeValue(value[key], appendPathKey(path, key), result, seen, depth + 1, maxDepth, maxArrayItems, maxKeysPerObject, sampleCount, recordCfg);
+      walkValue({ ctx, value: (value as Record<string, unknown>)[key], path: appendPathKey(path, key), depth: depth + 1 });
     }
-  } else {
-    // 标量 / 非标准类型叶子节点
-    const { type, sampleValue, longText, originalLength } = analyzeScalar(value, sampleCount);
-    const node: FlatSchemaItem = { path, type, sampleValue };
-    if (longText) {
-      node.longText = true;
-      node.originalLength = originalLength;
-    }
-    result.push(node);
-  }
-}
-
-/** 构造数组节点 (itemTypes 统计) */
-function createArrayNode(value: any[], path: string, sampleCount: number, _maxItems: number): FlatSchemaItem {
-  const node: FlatSchemaItem = { path, type: "array" };
-
-  if (value.length === 0) {
-    node.comment = "empty array";
-    node.itemTypes = [];
-    return node;
+    return;
   }
 
-  node.itemTypes = collectItemTypes(value, sampleCount);
-  return node;
-}
-
-/** 统计数组元素的类型分布，收集样本 */
-function collectItemTypes(items: any[], sampleCount: number): ItemTypeEntry[] {
-  const map = new Map<string, { count: number; samples: any[] }>();
-  for (const item of items) {
-    const t = getRawType(item);
-    const entry = map.get(t) ?? { count: 0, samples: [] };
-    entry.count++;
-    if (entry.samples.length < sampleCount && shouldCollectSample(t)) {
-      entry.samples.push(item);
-    }
-    map.set(t, entry);
+  const { type, sampleValue, longText, originalLength } = analyzeScalar(value, sampleCount);
+  const node: FlatSchemaItem = { path, type, sampleValue };
+  if (longText) {
+    node.longText = true;
+    node.originalLength = originalLength;
   }
-  return Array.from(map.entries()).map(([type, data]) => {
-    const entry: ItemTypeEntry = { type, count: data.count };
-    if (data.samples.length > 0) entry.samples = data.samples;
-    return entry;
-  });
+  result.push(node);
 }
 
-/** 处理数组内所有对象的字段展开 */
-function processArrayObjects(
-  objects: any[],
-  path: string,
-  result: FlatSchemaItem[],
-  seen: Set<object>,
-  depth: number,
-  maxDepth: number,
-  maxArrayItems: number,
-  maxKeysPerObject: number,
-  sampleCount: number,
-  recordCfg: ReturnType<typeof mergeRecordDetectOpts>
-) {
+function walkArrayObjects({ ctx, objects, path, depth }: WalkArrayObjectsParams): void {
   const allKeys = new Set<string>();
-  for (const obj of objects) {
-    Object.keys(obj).forEach((k) => allKeys.add(k));
-  }
+  for (const obj of objects) Object.keys(obj).forEach((k) => allKeys.add(k));
 
   for (const key of allKeys) {
     const fieldPath = appendArrayFieldKey(path, key);
-    const fieldValues = objects
-      .filter((obj) => key in obj)
-      .map((obj) => obj[key]);
+    const fieldValues = objects.filter((obj) => key in obj).map((obj) => (obj as Record<string, unknown>)[key]);
     const presence = fieldValues.length;
     const total = objects.length;
-
-    // 注意: 从 seen 中暂时移除当前值避免嵌套对象/数组被误判循环
-    // 实际做法: analyzeMergedValues 内部会正确递归
     const types = new Set(fieldValues.map(getRawType));
     if (types.size > 1) {
-      pushMixedNode(fieldValues, fieldPath, presence, total, result, sampleCount);
+      walkMixed({ ctx, values: fieldValues, path: fieldPath, presence, total });
     } else {
-      analyzeMergedValues(fieldValues, fieldPath, result, seen, depth, maxDepth, maxArrayItems, maxKeysPerObject, sampleCount, recordCfg, presence, total);
+      walkMergedValues({ ctx, values: fieldValues, path: fieldPath, depth, presence, total });
     }
   }
 }
 
-/** 处理数组内的嵌套数组 */
-function processArrayArrays(
-  arrays: any[][],
-  path: string,
-  result: FlatSchemaItem[],
-  seen: Set<object>,
-  depth: number,
-  maxDepth: number,
-  maxArrayItems: number,
-  maxKeysPerObject: number,
-  sampleCount: number,
-  recordCfg: ReturnType<typeof mergeRecordDetectOpts>
-) {
+function walkArrayArrays({ ctx, arrays, path, depth }: WalkArrayArraysParams): void {
+  const { sampleCount } = ctx;
   const allItems = arrays.flat();
   const innerPath = appendInnerArray(path);
   const node: FlatSchemaItem = { path: innerPath, type: "array", note: "inner array" };
@@ -202,52 +120,30 @@ function processArrayArrays(
     node.itemTypes = [];
   } else {
     node.itemTypes = collectItemTypes(allItems, sampleCount);
-
     const innerObjects = allItems.filter(isPlainObject);
-    if (innerObjects.length > 0) {
-      processArrayObjects(innerObjects, innerPath, result, seen, depth + 1, maxDepth, maxArrayItems, maxKeysPerObject, sampleCount, recordCfg);
-    }
-
-    const innerArrays = allItems.filter(Array.isArray) as any[][];
-    if (innerArrays.length > 0) {
-      processArrayArrays(innerArrays, innerPath, result, seen, depth + 1, maxDepth, maxArrayItems, maxKeysPerObject, sampleCount, recordCfg);
-    }
+    if (innerObjects.length > 0) walkArrayObjects({ ctx, objects: innerObjects as object[], path: innerPath, depth: depth + 1 });
+    const innerArrays = allItems.filter(Array.isArray) as unknown[][];
+    if (innerArrays.length > 0) walkArrayArrays({ ctx, arrays: innerArrays, path: innerPath, depth: depth + 1 });
   }
-
-  result.push(node);
+  ctx.result.push(node);
 }
 
-/** 处理同类型多值(对象/数组/标量)的合并分析，附加 presence/note */
-function analyzeMergedValues(
-  values: any[],
-  path: string,
-  result: FlatSchemaItem[],
-  seen: Set<object>,
-  depth: number,
-  maxDepth: number,
-  maxArrayItems: number,
-  maxKeysPerObject: number,
-  sampleCount: number,
-  recordCfg: ReturnType<typeof mergeRecordDetectOpts>,
-  presence: number,
-  total: number
-) {
+function walkMergedValues({ ctx, values, path, depth, presence, total }: WalkMergedValuesParams): void {
+  const { maxDepth, maxArrayItems, maxKeysPerObject, sampleCount, result, seen } = ctx;
   const firstValue = values[0];
   const type = getRawType(firstValue);
   const note = buildNote(presence, total);
 
   if (type === "object") {
-    // 循环引用检测
-    if (values.some((v) => typeof v === "object" && v !== null && seen.has(v))) {
+    if (values.some((v) => typeof v === "object" && v !== null && seen.has(v as object))) {
       result.push({ path, type: "circular", presence, note, comment: "circular reference in merged values" });
       return;
     }
 
     const allKeys = new Set<string>();
     for (const obj of values) {
-      if (isPlainObject(obj)) Object.keys(obj).forEach((k) => allKeys.add(k));
+      if (isPlainObject(obj)) Object.keys(obj as object).forEach((k) => allKeys.add(k));
     }
-
     const keysArr = Array.from(allKeys);
     const truncKeys = keysArr.length > maxKeysPerObject;
     const keys = truncKeys ? keysArr.slice(0, maxKeysPerObject) : keysArr;
@@ -257,77 +153,58 @@ function analyzeMergedValues(
 
     for (const key of keys) {
       const fieldPath = appendPathKey(path, key);
-      const fieldValues = values
-        .filter((v) => isPlainObject(v) && key in v)
-        .map((v) => v[key]);
+      const fieldValues = values.filter((v) => isPlainObject(v) && key in (v as object)).map((v) => (v as Record<string, unknown>)[key]);
       const fieldPresence = fieldValues.length;
-      const fieldTypes = new Set(fieldValues.map(getRawType));
-      if (fieldTypes.size > 1) {
-        pushMixedNode(fieldValues, fieldPath, fieldPresence, values.length, result, sampleCount);
+      if (new Set(fieldValues.map(getRawType)).size > 1) {
+        walkMixed({ ctx, values: fieldValues, path: fieldPath, presence: fieldPresence, total: values.length });
       } else {
-        analyzeMergedValues(fieldValues, fieldPath, result, seen, depth + 1, maxDepth, maxArrayItems, maxKeysPerObject, sampleCount, recordCfg, fieldPresence, values.length);
+        walkMergedValues({ ctx, values: fieldValues, path: fieldPath, depth: depth + 1, presence: fieldPresence, total: values.length });
       }
     }
-  } else if (type === "array") {
+    return;
+  }
+
+  if (type === "array") {
     const node: FlatSchemaItem = { path, type: "array", presence, note };
     const allItems = values.filter(Array.isArray).flat();
-
     if (allItems.length === 0) {
       node.comment = "empty array";
       node.itemTypes = [];
     } else {
       node.itemTypes = collectItemTypes(allItems, sampleCount);
-
       const innerObjects = allItems.filter(isPlainObject);
-      if (innerObjects.length > 0) {
-        processArrayObjects(innerObjects, appendInnerArray(path), result, seen, depth + 1, maxDepth, maxArrayItems, maxKeysPerObject, sampleCount, recordCfg);
-      }
-
-      const innerArrays = allItems.filter(Array.isArray) as any[][];
-      if (innerArrays.length > 0) {
-        processArrayArrays(innerArrays, appendInnerArray(path), result, seen, depth + 1, maxDepth, maxArrayItems, maxKeysPerObject, sampleCount, recordCfg);
-      }
-    }
-
-    result.push(node);
-  } else {
-    // 标量
-    const { type, sampleValue, longText, originalLength } = analyzeScalar(firstValue, sampleCount);
-    const node: FlatSchemaItem = { path, type, sampleValue, presence, note };
-    if (longText) {
-      node.longText = true;
-      node.originalLength = originalLength;
+      if (innerObjects.length > 0) walkArrayObjects({ ctx, objects: innerObjects, path: appendInnerArray(path), depth: depth + 1 });
+      const innerArrays = allItems.filter(Array.isArray) as unknown[][];
+      if (innerArrays.length > 0) walkArrayArrays({ ctx, arrays: innerArrays, path: appendInnerArray(path), depth: depth + 1 });
     }
     result.push(node);
+    return;
   }
+
+  const scalar = analyzeScalar(firstValue, sampleCount);
+  const node: FlatSchemaItem = { path, type: scalar.type, sampleValue: scalar.sampleValue, presence, note };
+  if (scalar.longText) {
+    node.longText = true;
+    node.originalLength = scalar.originalLength;
+  }
+  result.push(node);
 }
 
-/** 生成 mixed 节点 */
-function pushMixedNode(
-  values: any[],
-  path: string,
-  presence: number,
-  total: number,
-  result: FlatSchemaItem[],
-  sampleCount: number
-) {
-  const map = new Map<string, { count: number; samples: any[] }>();
+function walkMixed({ ctx, values, path, presence, total }: WalkMixedParams): void {
+  const { sampleCount, result } = ctx;
+  const map = new Map<string, { count: number; samples: unknown[] }>();
   for (const v of values) {
     const t = getRawType(v);
     const entry = map.get(t) ?? { count: 0, samples: [] };
     entry.count++;
-    if (entry.samples.length < sampleCount && shouldCollectSample(t)) {
-      entry.samples.push(v);
-    }
+    if (entry.samples.length < sampleCount && shouldCollectSample(t)) entry.samples.push(v);
     map.set(t, entry);
   }
-
   const variants: VariantEntry[] = Array.from(map.entries()).map(([type, data]) => {
     const entry: VariantEntry = { type, count: data.count };
     if (data.samples.length > 0) entry.samples = data.samples;
     return entry;
   });
-
   result.push({
     path,
     type: "mixed",
@@ -338,10 +215,37 @@ function pushMixedNode(
   });
 }
 
-/** 标量分析：日期识别、长文本截断、非标准类型 */
-function analyzeScalar(value: any, _sampleCount: number): {
+function createArrayNode(value: unknown[], path: string, sampleCount: number, maxItems: number): FlatSchemaItem {
+  const node: FlatSchemaItem = { path, type: "array" };
+  if (value.length === 0) {
+    node.comment = "empty array";
+    node.itemTypes = [];
+    return node;
+  }
+  node.itemTypes = collectItemTypes(value, sampleCount);
+  if (value.length > maxItems) node.comment = `truncated (${value.length} items → sampled ${maxItems})`;
+  return node;
+}
+
+function collectItemTypes(items: unknown[], sampleCount: number): ItemTypeEntry[] {
+  const map = new Map<string, { count: number; samples: unknown[] }>();
+  for (const item of items) {
+    const t = getRawType(item);
+    const entry = map.get(t) ?? { count: 0, samples: [] };
+    entry.count++;
+    if (entry.samples.length < sampleCount && shouldCollectSample(t)) entry.samples.push(item);
+    map.set(t, entry);
+  }
+  return Array.from(map.entries()).map(([type, data]) => {
+    const entry: ItemTypeEntry = { type, count: data.count };
+    if (data.samples.length > 0) entry.samples = data.samples;
+    return entry;
+  });
+}
+
+function analyzeScalar(value: unknown, _sampleCount: number): {
   type: string;
-  sampleValue: any;
+  sampleValue: unknown;
   longText?: boolean;
   originalLength?: number;
 } {
@@ -351,38 +255,24 @@ function analyzeScalar(value: any, _sampleCount: number): {
   if (typeof value === "number") return { type: "number", sampleValue: value };
   if (typeof value === "bigint") return { type: "bigint", sampleValue: String(value) };
   if (typeof value === "symbol") return { type: "symbol", sampleValue: value.toString() };
+  if (value instanceof Date) return { type: "date-object", sampleValue: value.toISOString() };
 
-  // Date 对象
-  if (value instanceof Date) {
-    return { type: "date-object", sampleValue: value.toISOString() };
-  }
-
-  // string
   const str = value as string;
-
-  // 日期识别约束：长度>=8 且含日期分隔符
-  // 日期识别: 至少 4-2-2 格式 + dayjs 校验, 避免 "1234-5678" 误判
   if (str.length >= 8 && /[-/T\s]/.test(str) && /^\d{4}-\d{2}-\d{2}/.test(str) && dayjs(str).isValid()) {
     return { type: "date", sampleValue: str };
   }
-
-  // 长文本截断
   if (str.length > 60) {
-    const truncated =
-      str.slice(0, 30) + `...(${str.length - 60} chars)...` + str.slice(-30);
     return {
       type: "long-text",
-      sampleValue: truncated,
+      sampleValue: str.slice(0, 30) + `...(${str.length - 60} chars)...` + str.slice(-30),
       longText: true,
       originalLength: str.length,
     };
   }
-
   return { type: "string", sampleValue: str };
 }
 
-/** 获取原始类型(不做日期/长文本细分，含非标准类型) */
-function getRawType(value: any): string {
+function getRawType(value: unknown): string {
   if (value === null) return "null";
   if (value === undefined) return "undefined";
   if (Array.isArray(value)) return "array";
@@ -393,20 +283,17 @@ function getRawType(value: any): string {
   return typeof value;
 }
 
-/** 判断是否应收集样本(标量/日期/长文本/date-object/bigint) */
 function shouldCollectSample(type: string): boolean {
   return ["string", "number", "boolean", "date", "long-text", "date-object", "bigint"].includes(type);
 }
 
-/** 构建 note 文本 */
 function buildNote(presence: number, total: number): string {
   return presence < total
     ? `present in ${presence}/${total} objects (optional)`
     : `present in ${presence}/${total} objects`;
 }
 
-/** 非标准类型的简短表示（用于 maxDepth 截断时） */
-function inlineRepr(value: any): any {
+function inlineRepr(value: unknown): unknown {
   if (value === null) return null;
   if (value === undefined) return "undefined";
   if (value instanceof Date) return value.toISOString();
