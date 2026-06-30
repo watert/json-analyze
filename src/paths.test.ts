@@ -1,5 +1,5 @@
 // getByPath / readByKey 测试
-import { describe, it, expect } from "./test-harness.js";
+import { describe, it, expect } from "vitest";
 import { getByPath, readByKey, getClosestKeys } from "../src/index.js";
 
 describe("getByPath: 路径提取", () => {

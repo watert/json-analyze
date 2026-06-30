@@ -1,4 +1,4 @@
-import { describe, expect, it } from "./test-harness.js";
+import { describe, expect, it } from "vitest";
 import { analyzeJSON } from "./analyzer.js";
 import { filterSchemaByPathPrefix, planDetailBudget } from "./analyze-detail-budget.js";
 import { renderGroupedFlatMarkdown } from "./format-grouped.js";

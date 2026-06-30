@@ -1,4 +1,4 @@
-import { describe, expect, it } from "./test-harness.js";
+import { describe, expect, it } from "vitest";
 import { readFileSync } from "fs";
 import { homedir } from "os";
 import { join } from "path";

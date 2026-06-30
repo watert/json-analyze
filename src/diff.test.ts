@@ -1,4 +1,4 @@
-import { describe, expect, it } from "./test-harness.js";
+import { describe, expect, it } from "vitest";
 import { diffJSON, diffWalk } from "./diff.js";
 
 describe("diff", () => {

@@ -1,5 +1,5 @@
 // Markdown 格式化输出测试
-import { describe, it, expect } from "./test-harness.js";
+import { describe, it, expect } from "vitest";
 import { analyzeJSON } from "../src/analyzer.js";
 import { renderMarkdown } from "../src/format.js";
 

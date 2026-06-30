@@ -1,5 +1,5 @@
 // filter 单元测试
-import { describe, it, expect } from "./test-harness.js";
+import { describe, it, expect } from "vitest";
 import { filterJSON } from "../src/filter.js";
 
 // 直接 inline 测试 coerce 行为，通过公共接口的 value 类型推断间接验证

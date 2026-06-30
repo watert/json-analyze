@@ -1,4 +1,4 @@
-import { describe, expect, it } from "./test-harness.js";
+import { describe, expect, it } from "vitest";
 import { analyzeJSON } from "./analyzer.js";
 import { summarizeSchema } from "./summarize.js";
 import {

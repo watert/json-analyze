@@ -397,7 +397,8 @@ bun remove -g json-analyze
 ## 测试
 
 ```bash
-bun test
+bun run test          # vitest run，单次退出（非 watch）
+bun run test:watch    # 开发时监听
 ```
 
-`bun test` 覆盖 analyze / paths / JSONL / diff / format 等（见 `src/*.test.ts`）。CLI 实现位于 `src/cli/`。
+Vitest（Bun/Node 均可）；覆盖 analyze / paths / JSONL / diff / format 等（`src/*.test.ts`）。

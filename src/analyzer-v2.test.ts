@@ -1,5 +1,5 @@
 // 新能力测试: 循环引用、规模控制、非标准类型、路径转义
-import { describe, it, expect } from "./test-harness.js";
+import { describe, it, expect } from "vitest";
 import { analyzeJSON, getParent } from "../src/index.js";
 
 describe("v2: 循环引用检测", () => {

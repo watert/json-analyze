@@ -1,5 +1,5 @@
 // JSONL 流式模块测试
-import { describe, it, expect } from "./test-harness.js";
+import { describe, it, expect } from "vitest";
 import {
   parseJSONL,
   analyzeJSONL,
