@@ -138,9 +138,10 @@ export function planGroupCompression(units: CompressUnit[], preambleBytes: numbe
   };
 }
 
-export function renderGroupBudgetNote(plan: GroupCompressPlan, digestCount: number): string {
+/** 超预算时放在 Schema detail 节首段（非 list item） */
+export function renderDetailBudgetParagraph(plan: GroupCompressPlan, digestCount: number): string {
   if (!plan.overBudget) return "";
   const kb = (plan.fullBytes / 1024).toFixed(0);
   const cap = (plan.maxBytes / 1024).toFixed(0);
-  return `- **detail budget**: ~${kb}KB → cap **${cap}KB**; **${digestCount}** group(s) compressed (keyNames + _drill_)\n`;
+  return `估算详情约 **${kb}KB**，超过上限 **${cap}KB**；已将 **${digestCount}** 个大组压成 digest（仅 keyNames + _drill_），完整字段见文末 **Compressed groups** 或按 _drill_ 执行 \`--path-prefix\`。\n`;
 }

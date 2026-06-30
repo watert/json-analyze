@@ -9,7 +9,7 @@ describe("analyze-detail-budget", () => {
     for (let i = 0; i < 40; i++) obj[`id${i}`] = { id: i, name: `n${i}`, bio: "x".repeat(50) };
     const schema = analyzeJSON({ users: obj, meta: { a: 1 } });
     const out = renderGroupedFlatMarkdown(schema, {
-      maxDetailBytes: 500,
+      maxDetailBytes: 400,
       drillFile: "data.json",
       sourceLabel: "data.json",
       top: 3,

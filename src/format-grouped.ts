@@ -6,7 +6,7 @@ import {
   planGroupCompression,
   recordFieldKeyNames,
   renderDigestFooter,
-  renderGroupBudgetNote,
+  renderDetailBudgetParagraph,
   type CompressUnit,
 } from "./format-compress-groups.js";
 import { scorePathWeight } from "./analyze-preamble.js";
@@ -50,6 +50,21 @@ function recordBlockFull(parent: FlatSchemaItem, kids: FlatSchemaItem[]): string
 
 function renderObjectGroupFull(groupPath: string, paths: FlatSchemaItem[]): string {
   return renderNestedObjectGroup(groupPath, paths);
+}
+
+function renderSchemaDetailSection(plan: ReturnType<typeof planGroupCompression>, body: string): string {
+  const lines = [
+    "## Schema detail",
+    "",
+    "按 record / 顶层 object 分组展示字段类型与样本；深层 object 以分节 + 子弹列出，同质 map 不逐 entry 展开。",
+    "",
+  ];
+  if (plan.overBudget) {
+    lines.push(renderDetailBudgetParagraph(plan, plan.digestPaths.size).trimEnd());
+    lines.push("");
+  }
+  if (body) lines.push(body);
+  return lines.join("\n");
 }
 
 export function renderGroupedFlatMarkdown(items: FlatSchemaItem[], opts?: GroupedRenderOptions): string {
@@ -100,8 +115,7 @@ export function renderGroupedFlatMarkdown(items: FlatSchemaItem[], opts?: Groupe
   const drillFile = opts?.drillFile ?? opts?.sourceLabel ?? "<file>";
   const plan = planGroupCompression(allUnits, preambleBytes, maxDetail, drillFile);
 
-  const extra = plan.overBudget ? renderGroupBudgetNote(plan, plan.digestPaths.size) : "";
-  const preambleWithNote = finalizePreamble(preamble, extra);
+  const preambleBlock = finalizePreamble(preamble, "");
 
   const detailBlocks: string[] = [];
   const digestUnits: CompressUnit[] = [];
@@ -126,8 +140,9 @@ export function renderGroupedFlatMarkdown(items: FlatSchemaItem[], opts?: Groupe
 
   const body = detailBlocks.join("\n\n");
   const footer = renderDigestFooter(plan, digestUnits);
-  const sep = body && footer ? "\n\n" : "";
-  return `${preambleWithNote}${body}${sep}${footer}`;
+  const detailSection = renderSchemaDetailSection(plan, body);
+  const sepFooter = footer ? "\n\n" : "";
+  return `${preambleBlock}${detailSection}${sepFooter}${footer}`;
 }
 
 export { filterSchemaByPathPrefix };
