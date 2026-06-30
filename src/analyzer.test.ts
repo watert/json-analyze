@@ -1,5 +1,5 @@
 // JSON Schema Analyzer 单元测试
-import { describe, it, expect } from "bun:test";
+import { describe, it, expect } from "./test-harness.js";
 import { analyzeJSON } from "../src/analyzer.js";
 import { getParent } from "../src/path-utils.js";
 

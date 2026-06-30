@@ -1,19 +1,15 @@
 // 单文件 / stdin JSON 读取
 import type { InputTarget } from "./input-resolve.js";
 import { isStdinTarget } from "./input-resolve.js";
+import { readTextFile } from "./runtime/fs.js";
+import { readStdinText } from "./runtime/stdin.js";
 
 export async function readJsonFromTarget(target: InputTarget): Promise<unknown> {
   let input: string;
   if (isStdinTarget(target)) {
-    const chunks: string[] = [];
-    for await (const chunk of Bun.stdin.stream()) {
-      chunks.push(new TextDecoder().decode(chunk));
-    }
-    input = chunks.join("");
+    input = await readStdinText();
   } else {
-    const f = Bun.file(target.path);
-    if (!(await f.exists())) throw new Error(`file not found: ${target.path}`);
-    input = await f.text();
+    input = await readTextFile(target.path);
   }
   if (!input.trim()) throw new Error(`empty input: ${target.path}`);
   try {

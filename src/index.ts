@@ -24,7 +24,13 @@ export {
 export type { InputTarget, ResolveInputOptions, ResolveInputResult } from "./input-resolve.js";
 export { readJsonFromTarget } from "./io.js";
 export { mergeAnalyzeSummaries } from "./batch-summary.js";
-export { diffJSON, diffWalk, parseIgnorePaths, DEFAULT_DIFF_IGNORE } from "./diff.js";
+export {
+  diffJSON,
+  diffWalk,
+  parseIgnorePaths,
+  DEFAULT_DIFF_IGNORE,
+} from "./diff.js";
+export type { DiffJSONOptions } from "./diff.js";
 export { splitPath } from "./path-utils.js";
 export {
   parseJSONL,
@@ -34,6 +40,8 @@ export {
   aggregateAnalyzeJSONL,
   collectFilterJSONL,
   collectSearchJSONL,
+  collectJSONLForMergedAnalyze,
+  DEFAULT_JSONL_MERGE_MAX_LINES,
 } from "./jsonl.js";
 
 export type { FilterQuery, FilterOptions, FilterResult, FilterOp, SearchOptions, SearchMatch, SearchResult } from "./filter.js";
@@ -55,4 +63,6 @@ export type {
   ParseOptions,
   LineResult,
   AggregatedStats,
+  CollectJSONLMergedOptions,
+  CollectJSONLMergedResult,
 } from "./jsonl.js";

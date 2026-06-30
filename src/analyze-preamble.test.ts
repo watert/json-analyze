@@ -1,4 +1,4 @@
-import { describe, expect, it } from "bun:test";
+import { describe, expect, it } from "./test-harness.js";
 import { analyzeJSON } from "./analyzer.js";
 import { finalizePreamble, pickHeaviestPaths, renderAnalyzePreamble } from "./analyze-preamble.js";
 

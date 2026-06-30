@@ -1,5 +1,5 @@
 // explorer + summarize 测试
-import { describe, it, expect } from "bun:test";
+import { describe, it, expect } from "./test-harness.js";
 import {
   analyzeJSON,
   getFieldValues,

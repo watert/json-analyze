@@ -1,4 +1,4 @@
-import { describe, expect, it, beforeAll, afterAll } from "bun:test";
+import { describe, expect, it, beforeAll, afterAll } from "./test-harness.js";
 import { mkdirSync, writeFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";

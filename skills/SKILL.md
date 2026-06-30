@@ -1,10 +1,10 @@
 ---
 name: json-schema-analyzer
 description: Analyze arbitrary JSON data and convert it into a flattened schema array, or filter/query JSON content with auto-inferred types. v2.2 adds cross-node wildcard (*/[] on dict), filter expressions ([?key~pattern]), path diagnostics (getClosestKeys), and multi-path comparison (compare). v2.3 adds JSONL streaming protocol — async generator based parseJSONL/analyzeJSONL/filterJSONL/searchJSONL with zero-copy line splitting for arbitrary-size JSONL files. Triggers when the user needs to understand JSON structure, find data by pattern, compare values across paths, get a compact schema digest for LLM prompt injection, or stream-process JSONL files.
-version: 2.6.0
+version: 2.7.0
 ---
 
-# json-analyze — JSON Schema Analyzer & Filter v2.5
+# json-analyze — JSON Schema Analyzer & Filter v2.7
 
 `json-analyze` 是一个轻量 JSON 工具集，提供：
 
@@ -452,7 +452,8 @@ cat huge.jsonl | json-analyze explore --jsonl 'items[].role'
 - **JSONL 流式模式 (v2.3)**: `--jsonl` 启用逐行 async generator 处理，支持任意大小文件; 错误行默认 skip + stderr 警告，不影响有效行; `BunFile` 走零拷贝 stream，stdin 走 AsyncIterable 喂入; `summary --jsonl` 跨行聚合 stats
 - **默认 overview (v2.4)**: `json-analyze [file]` 六段 Markdown；库 `renderOverviewMarkdown` / `buildOverviewJSON`
 - **analyze 默认 md (v2.6)**: Top 摘要 + record/group 嵌套；同质 map 不逐 entry 成节；超 50KB → 底部 ≥5 条 record-digest；drill `--path-prefix` + `-f md-flat`
-- **`analyze --jsonl` 默认按大数组处理 (v2.3.1)**: 把所有行合并为 `[]` 调一次 `analyzeJSON`, 输出统一 schema 含 presence/optional/mixed 跨行统计 (类似 SQL DESCRIBE); 加 `--per-line` 切回逐行 (高级 / 调试 / GB 级文件); `filter/search/get/explore --jsonl` 仍保持 per-line (天然按行查的语义)
+- **`analyze --jsonl` 合并模式**: 全量内存 + `analyzeJSON`; `--max-lines` 默认 50000; 大文件 `--per-line`; 其它 `--jsonl` 子命令为真流式
+- **v2.7**: CLI 拆至 `src/cli/`; 库导出 `diffJSON`、`collectJSONLForMergedAnalyze`
 
 ## 相关文档
 

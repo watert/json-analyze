@@ -213,6 +213,40 @@ export async function* searchJSONL(
   }
 }
 
+/** analyze --jsonl 默认合并模式: 全量载入内存前的行数上限 */
+export const DEFAULT_JSONL_MERGE_MAX_LINES = 50_000;
+
+export interface CollectJSONLMergedOptions extends ParseOptions {
+  /** 最多载入行数, 超出抛错 (默认 50000) */
+  maxLines?: number;
+}
+
+export interface CollectJSONLMergedResult {
+  items: unknown[];
+  totalLines: number;
+  truncated: boolean;
+}
+
+/** 解析 JSONL 为数组, 供合并 analyze (非流式内存模型, 受 maxLines 约束) */
+export async function collectJSONLForMergedAnalyze(
+  source: JSONLSource,
+  opts: CollectJSONLMergedOptions = {}
+): Promise<CollectJSONLMergedResult> {
+  const maxLines = opts.maxLines ?? DEFAULT_JSONL_MERGE_MAX_LINES;
+  const items: unknown[] = [];
+  let totalLines = 0;
+  for await (const parsed of parseJSONL(source, opts)) {
+    totalLines++;
+    if (totalLines > maxLines) {
+      throw new Error(
+        `JSONL merge exceeds --max-lines ${maxLines} (loaded ${maxLines} lines). Use --per-line for streaming per-row schema, or raise --max-lines.`
+      );
+    }
+    items.push(parsed.data);
+  }
+  return { items, totalLines, truncated: false };
+}
+
 // ---------- 聚合工具 ----------
 
 /** 聚合多行 schema 的统计结果 */

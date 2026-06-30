@@ -1,7 +1,7 @@
 // 解析 CLI 输入: 单文件 / 目录 / glob → InputTarget[]
-import { Glob } from "bun";
 import { existsSync, statSync } from "node:fs";
-import { dirname, join, relative, resolve } from "node:path";
+import { dirname, relative, resolve } from "node:path";
+import { collectFilesInDir, scanGlob } from "./runtime/glob.js";
 
 export interface InputTarget {
   path: string;
@@ -52,14 +52,12 @@ async function collectFromDir(
   out: string[],
   omitted: { n: number }
 ): Promise<void> {
-  const pattern = recurse ? `**/*.{${exts.join(",")}}` : `*.{${exts.join(",")}}`;
-  const glob = new Glob(pattern);
-  for await (const rel of glob.scan({ cwd: dir, onlyFiles: true })) {
+  const paths = await collectFilesInDir(dir, exts, recurse);
+  for (const full of paths) {
     if (out.length >= maxFiles) {
       omitted.n++;
       continue;
     }
-    const full = join(dir, rel);
     if (extMatches(full, exts)) out.push(full);
   }
 }
@@ -73,8 +71,8 @@ async function collectFromGlob(
   out: string[],
   omitted: { n: number }
 ): Promise<void> {
-  const glob = new Glob(pattern);
-  for await (const rel of glob.scan({ cwd: base, onlyFiles: true })) {
+  const rels = await scanGlob(pattern, base, true);
+  for (const rel of rels) {
     if (out.length >= maxFiles) {
       omitted.n++;
       continue;

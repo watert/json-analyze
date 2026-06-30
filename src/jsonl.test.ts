@@ -1,5 +1,5 @@
 // JSONL 流式模块测试
-import { describe, it, expect } from "bun:test";
+import { describe, it, expect } from "./test-harness.js";
 import {
   parseJSONL,
   analyzeJSONL,
@@ -8,6 +8,7 @@ import {
   aggregateAnalyzeJSONL,
   collectFilterJSONL,
   collectSearchJSONL,
+  collectJSONLForMergedAnalyze,
 } from "./jsonl.js";
 
 // ---------- parseJSONL ----------
@@ -55,9 +56,16 @@ describe("parseJSONL: 字符串输入", () => {
 
   it("errorMode: throw 直接抛错", async () => {
     const input = '{"a":1}\nnot json\n{"b":2}';
-    expect(async () => {
-      for await (const _ of parseJSONL(input, { errorMode: "throw" })) { void _; }
-    }).toThrow();
+    let err: unknown;
+    try {
+      for await (const _ of parseJSONL(input, { errorMode: "throw" })) {
+        void _;
+      }
+    } catch (e) {
+      err = e;
+    }
+    expect(err).toBeDefined();
+    expect(String(err)).toMatch(/invalid JSON/);
   });
 
   it("errorMode: ignore 静默跳过", async () => {
@@ -153,16 +161,19 @@ describe("parseJSONL: ReadableStream 输入", () => {
   });
 });
 
-describe("parseJSONL: BunFile 输入", () => {
+describe("parseJSONL: 文件流输入", () => {
   it("从文件读取", async () => {
-    const path = "/tmp/jsonl-test-bunfile.jsonl";
-    await Bun.write(path, '{"a":1}\n{"b":2}\n{"c":3}\n');
-    const file = Bun.file(path);
+    const { writeFile, unlink } = await import("node:fs/promises");
+    const { createReadStream } = await import("node:fs");
+    const { Readable } = await import("node:stream");
+    const path = "/tmp/jsonl-test-filestream.jsonl";
+    await writeFile(path, '{"a":1}\n{"b":2}\n{"c":3}\n', "utf8");
+    const stream = Readable.toWeb(createReadStream(path)) as ReadableStream<Uint8Array>;
     const out: any[] = [];
-    for await (const p of parseJSONL(file)) out.push(p);
+    for await (const p of parseJSONL(stream)) out.push(p);
     expect(out.length).toBe(3);
     expect(out[1].data).toEqual({ b: 2 });
-    await Bun.$`rm -f ${path}`;
+    await unlink(path).catch(() => {});
   });
 });
 
@@ -319,5 +330,19 @@ describe("JSONL 端到端", () => {
       }
     }
     expect(count).toBe(10000);
+  });
+});
+
+describe("collectJSONLForMergedAnalyze", () => {
+  it("maxLines 超出抛错", async () => {
+    const input = '{"a":1}\n{"b":2}\n{"c":3}';
+    await expect(collectJSONLForMergedAnalyze(input, { maxLines: 2 })).rejects.toThrow(/max-lines/);
+  });
+
+  it("正常合并", async () => {
+    const input = '{"a":1}\n{"b":2}';
+    const r = await collectJSONLForMergedAnalyze(input, { maxLines: 10 });
+    expect(r.totalLines).toBe(2);
+    expect(r.items).toEqual([{ a: 1 }, { b: 2 }]);
   });
 });

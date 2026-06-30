@@ -1,4 +1,4 @@
-import { describe, expect, it } from "bun:test";
+import { describe, expect, it } from "./test-harness.js";
 import { readFileSync } from "fs";
 import { homedir } from "os";
 import { join } from "path";

@@ -2,7 +2,7 @@
 
 > ⚠️ 本包仅供 monorepo 内部使用，不发布到 npm。TypeScript 源文件直接通过 `src/index.ts` 引用，无编译产物。
 
-JSON Schema Analyzer — 将任意 JSON 数据转换为扁平化 schema 数组，支持 Markdown / JSON 输出。v2 新增循环引用检测、规模控制、路径提取、字段探索、摘要压缩等能力。**v2.3 新增 JSONL 流式协议**——逐行解析 + async generator，支持任意大小文件。
+JSON Schema Analyzer — 将任意 JSON 数据转换为扁平化 schema 数组，支持 Markdown / JSON 输出。v2 新增循环引用检测、规模控制、路径提取、字段探索、摘要压缩等能力。**JSONL**：检索类子命令真流式；`analyze --jsonl` 默认合并 DESCRIBE（`--max-lines` 默认 50000，超大用 `--per-line`）。CLI 在 `src/cli/`。
 
 ## 安装
 
@@ -309,7 +309,7 @@ const stats = await aggregateAnalyzeJSONL(Bun.file("logs.jsonl"));
 
 ### JSONL CLI
 
-所有子命令支持 `--jsonl` flag。**注意 `analyze` 语义**: 默认把整个 JSONL 视作一个大数组 (`[item1, item2, ...]`) 一次性合并 schema, 类似 `SQL DESCRIBE`, 含 `presence/optional/mixed` 跨行统计。`--per-line` 切回逐行 (高级 / 调试 / GB 级文件)。
+子命令支持 `--jsonl`。**`analyze --jsonl`**：默认合并为 `[item1, …]` 再 `analyzeJSON`（跨行 presence，**全量载入内存**）；`--max-lines` 默认 50000，超出报错；行数 >10000 会 stderr 警告。GB 级或低内存请 **`--per-line`**。`filter`/`search`/`get`/`explore`/`summary --jsonl` 为真流式。
 
 ```bash
 # analyze: 默认按大数组合并 schema (推荐)
@@ -337,6 +337,14 @@ cat data.jsonl | json-analyze explore --jsonl 'items[].role'
 ```
 
 `--jsonl` 时错误行默认 skip + 警告 (stderr), 数据行处理不受影响。
+
+### `diffJSON(left, right, opts?: DiffJSONOptions)`
+
+双 JSON 对比，输出 md / md-flat / json（CLI 同逻辑）。
+
+### `collectJSONLForMergedAnalyze(source, opts?)`
+
+合并模式载入 JSONL 为数组；`maxLines` 默认 `DEFAULT_JSONL_MERGE_MAX_LINES` (50000)。
 
 ### `readByKey(obj: any, key: string): any`
 
@@ -392,4 +400,4 @@ bun remove -g json-analyze
 bun test
 ```
 
-107 个测试覆盖全部场景 (含 26 个 JSONL 流式测试)。
+`bun test` 覆盖 analyze / paths / JSONL / diff / format 等（见 `src/*.test.ts`）。CLI 实现位于 `src/cli/`。
