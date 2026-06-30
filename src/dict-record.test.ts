@@ -35,14 +35,14 @@ describe("dict-record", () => {
 
   it("动态 id map 可判定 record", () => {
     const obj: Record<string, object> = {};
-    for (let i = 0; i < 30; i++) obj[`${2049300181053714940 + i}`] = { id: i, name: `n${i}` };
+    for (let i = 0; i < 30; i++) obj[`204930018105371494${String(i).padStart(2, "0")}`] = { id: i, name: `n${i}` };
     const r = detectHomogeneousRecord(obj, mergeRecordDetectOpts({}));
     expect(r?.keysCount).toBe(30);
   });
 
   it("analyzeJSON 不逐 id 展开", () => {
     const obj: Record<string, object> = {};
-    for (let i = 0; i < 30; i++) obj[`204930018105371494${i}`] = { id: i, name: `n${i}` };
+    for (let i = 0; i < 30; i++) obj[`204930018105371494${String(i).padStart(2, "0")}`] = { id: i, name: `n${i}` };
     const schema = analyzeJSON({ answers: obj });
     expect(schema.find((s) => s.path === "root.answers" && s.type === "record")).toBeDefined();
     expect(schema.filter((s) => /^root\.answers\.204/.test(s.path)).length).toBe(0);
