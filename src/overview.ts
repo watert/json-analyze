@@ -280,3 +280,41 @@ export function buildOverviewJSON(opts: OverviewOptions): OverviewJSON {
     },
   };
 }
+
+/** 多文件时每文件短报告 */
+export function renderOverviewBriefMarkdown(opts: OverviewOptions): string {
+  const { meta, schema, summary } = opts;
+  const compact = compactSchema(schema);
+  const hot = pickHotspots(schema, 3).map(hotspotLine).join("\n");
+  const lines = [
+    `### ${meta.sourceLabel}`,
+    `- 根: \`${meta.rootType}\` · 节点 ${summary.totalNodes} · 深度 ${summary.maxDepth}`,
+    "```",
+    compact,
+    "```",
+  ];
+  if (hot) lines.push(hot);
+  return lines.join("\n");
+}
+
+export function renderBatchOverviewFooter(
+  fileCount: number,
+  errors: string[],
+  omitted: number,
+  merged?: { mixedFields: number; maxDepth: number }
+): string {
+  const parts = [`## Batch`, `- 已处理文件: ${fileCount}`];
+  if (omitted > 0) parts.push(`- 因 --max-files 省略: ${omitted}`);
+  if (errors.length) {
+    parts.push(`- 解析失败 (已 skip): ${errors.length}`);
+    for (const e of errors.slice(0, 5)) parts.push(`  - ${e}`);
+    if (errors.length > 5) parts.push(`  - … +${errors.length - 5}`);
+  }
+  if (merged) {
+    parts.push(`- 聚合: max depth ${merged.maxDepth}, mixed 合计 ${merged.mixedFields}`);
+  }
+  parts.push(
+    drill(`\`json-analyze filter <dir> key=value\` · \`json-analyze search <pat> <dir>\``)
+  );
+  return parts.join("\n");
+}

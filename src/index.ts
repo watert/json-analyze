@@ -13,6 +13,15 @@ export {
   suggestQuickPaths,
 } from "./overview.js";
 export type { OverviewOptions, OverviewInputMeta, OverviewJSON } from "./overview.js";
+export {
+  resolveInputTargets,
+  assertSingleInputTarget,
+  resolveOptsFromArgv,
+  isStdinTarget,
+} from "./input-resolve.js";
+export type { InputTarget, ResolveInputOptions, ResolveInputResult } from "./input-resolve.js";
+export { readJsonFromTarget } from "./io.js";
+export { mergeAnalyzeSummaries } from "./batch-summary.js";
 export { splitPath } from "./path-utils.js";
 export {
   parseJSONL,

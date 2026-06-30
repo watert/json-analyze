@@ -49,6 +49,9 @@ console.log(compactSchema(schema));
 
 ```bash
 json-analyze data.json
+json-analyze ./exports/          # 目录内递归 *.json
+json-analyze '*.json' --max-files 50
+json-analyze filter ./dir id=foo # 多文件 grep
 cat data.json | json-analyze
 json-analyze data.json --format json --pretty
 ```

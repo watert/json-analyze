@@ -9,7 +9,28 @@ import { getByPath, getClosestKeys } from "../src/paths.js";
 import { getFieldValues, getPathCardinality, getObjectKeys } from "../src/explorer.js";
 import { splitPath } from "../src/path-utils.js";
 import { summarizeSchema, compactSchema } from "../src/summarize.js";
-import { renderOverviewMarkdown, buildOverviewJSON } from "../src/overview.js";
+import {
+  renderOverviewMarkdown,
+  buildOverviewJSON,
+  renderOverviewBriefMarkdown,
+  renderBatchOverviewFooter,
+} from "../src/overview.js";
+import {
+  resolveInputTargets,
+  assertSingleInputTarget,
+  resolveOptsFromArgv,
+  isStdinTarget,
+  type InputTarget,
+} from "../src/input-resolve.js";
+import { readJsonFromTarget } from "../src/io.js";
+import { mergeAnalyzeSummaries } from "../src/batch-summary.js";
+import {
+  forEachJsonFile,
+  runAnalyzeOnTargets,
+  runFilterOnTargets,
+  runSearchOnTargets,
+  runSummaryOnTargets,
+} from "../src/multi-run.js";
 import {
   parseJSONL,
   analyzeJSONL,
@@ -31,8 +52,13 @@ function printHelp(cmd?: SubCommand) {
     console.log(`json-analyze — JSON 工具集 v2
 
 Usage:
-  json-analyze [file]              # 默认: Overview 体检报告
+  json-analyze [file|dir|glob]     # 默认 Overview；目录/glob 多文件
   cat data.json | json-analyze
+
+Input (多文件):
+  --max-files 100   --no-recurse   --ext json,jsonl
+  --root <dir> --glob '<pat>'      # 与 filter query 并用
+  --on-error skip|fail             # 默认 skip
   json-analyze <command> [options] [file]
   cat data.jsonl | json-analyze <command> --jsonl [options]
 
@@ -294,14 +320,29 @@ function drillLine(...cmds: string[]): string {
   return `\n> 展开: ${cmds.map((c) => `\`${c}\``).join(" · ")}\n`;
 }
 
+function emitResolveWarnings(warnings: string[]) {
+  for (const w of warnings) console.error(`warn: ${w}`);
+}
+
+function onErrorMode(argv: Record<string, unknown>): "skip" | "fail" {
+  return argv["on-error"] === "fail" ? "fail" : "skip";
+}
+
+async function resolveTargetsFromArgv(argv: Record<string, unknown>) {
+  const spec = argv.glob ? undefined : (argv._ as string[] | undefined)?.[0];
+  const r = await resolveInputTargets(spec, resolveOptsFromArgv(argv));
+  emitResolveWarnings(r.warnings);
+  return r;
+}
+
 // ---------- 默认: overview ----------
 
 async function runOverview(rawArgv: string[]) {
   const argv = minimist(rawArgv, {
-    string: ["format"],
-    boolean: ["help", "pretty", "jsonl"],
+    string: ["format", "root", "glob", "ext", "on-error"],
+    boolean: ["help", "pretty", "jsonl", "no-recurse"],
     alias: { h: "help", f: "format", p: "pretty" },
-    default: { format: "md", "max-depth": 32, "max-items": 5000, "max-keys": 500 },
+    default: { format: "md", "max-depth": 32, "max-items": 5000, "max-keys": 500, "max-files": 100, "on-error": "skip" },
   });
   if (argv.help) {
     printHelp("help");
@@ -338,23 +379,46 @@ async function runOverview(rawArgv: string[]) {
     return;
   }
 
-  const data = await loadInput(argv);
-  const schema = analyzeJSON(data, analyzeOpts);
-  const summary = summarizeSchema(schema);
-  const overviewOpts = {
-    fileArg,
-    meta: {
-      sourceLabel: fileArg ?? "stdin",
-      rootType: rootTypeOf(data),
-      analyzeOpts,
-    },
-    schema,
-    summary,
+  const { targets, omitted } = await resolveTargetsFromArgv(argv);
+  const mode = onErrorMode(argv);
+
+  const runOne = (label: string, data: unknown, fileArg?: string) => {
+    const schema = analyzeJSON(data, analyzeOpts);
+    const summary = summarizeSchema(schema);
+    return {
+      fileArg,
+      meta: { sourceLabel: label, rootType: rootTypeOf(data), analyzeOpts },
+      schema,
+      summary,
+    };
   };
+
+  if (targets.length === 1) {
+    const data = await readJsonFromTarget(targets[0]);
+    const overviewOpts = runOne(isStdinTarget(targets[0]) ? "stdin" : targets[0].path, data, targets[0].kind === "file" ? targets[0].path : undefined);
+    if (format === "md") console.log(renderOverviewMarkdown(overviewOpts));
+    else outputResult(buildOverviewJSON(overviewOpts), "json", !!argv.pretty);
+    return;
+  }
+
+  const summaries: ReturnType<typeof summarizeSchema>[] = [];
+  const jsonFiles: ReturnType<typeof buildOverviewJSON>[] = [];
+  const errors = await forEachJsonFile(targets, mode, (label, data) => {
+    const o = runOne(label, data, label);
+    summaries.push(o.summary);
+    if (format === "md") {
+      console.log(renderOverviewBriefMarkdown(o));
+      console.log("");
+    } else {
+      jsonFiles.push(buildOverviewJSON(o));
+    }
+  });
+
+  const merged = mergeAnalyzeSummaries(summaries);
   if (format === "md") {
-    console.log(renderOverviewMarkdown(overviewOpts));
+    console.log(renderBatchOverviewFooter(summaries.length, errors, omitted, merged));
   } else {
-    outputResult(buildOverviewJSON(overviewOpts), "json", !!argv.pretty);
+    outputResult({ files: jsonFiles, batch: { merged, errors, omitted } }, "json", !!argv.pretty);
   }
 }
 
@@ -362,10 +426,10 @@ async function runOverview(rawArgv: string[]) {
 
 async function runAnalyze(rawArgv: string[]) {
   const argv = minimist(rawArgv, {
-    string: ["format", "path-glob"],
-    boolean: ["help", "pretty", "list-keys", "fold", "jsonl", "per-line"],
+    string: ["format", "path-glob", "root", "glob", "ext", "on-error"],
+    boolean: ["help", "pretty", "list-keys", "fold", "jsonl", "per-line", "no-recurse"],
     alias: { h: "help", f: "format", p: "pretty" },
-    default: { format: "md", "max-depth": 32, "max-items": 5000, "max-keys": 500, "key-depth": 1 },
+    default: { format: "md", "max-depth": 32, "max-items": 5000, "max-keys": 500, "key-depth": 1, "max-files": 100, "on-error": "skip" },
   });
   if (argv.help) { printHelp("analyze"); return; }
   const format = argv.format as string;
@@ -414,10 +478,15 @@ async function runAnalyze(rawArgv: string[]) {
     return;
   }
 
-  const data = await loadInput(argv);
-  const schema = analyzeJSON(data, analyzeOpts);
+  const { targets } = await resolveTargetsFromArgv(argv);
+  const mode = onErrorMode(argv);
+  if (argv["list-keys"] && targets.length > 1) {
+    throw new Error("analyze --list-keys 仅支持单文件输入");
+  }
 
   if (argv["list-keys"]) {
+    const data = await readJsonFromTarget(targets[0]);
+    const schema = analyzeJSON(data, analyzeOpts);
     const keyDepth = Number(argv["key-depth"]) || 1;
     const pathGlob = argv["path-glob"] as string | undefined;
     const fold = !!argv.fold;
@@ -456,21 +525,17 @@ async function runAnalyze(rawArgv: string[]) {
     return;
   }
 
-  if (format === "md") {
-    console.log(renderMarkdown(schema));
-  } else {
-    outputResult(schema, "json", !!argv.pretty);
-  }
+  await runAnalyzeOnTargets(targets, mode, analyzeOpts, format, !!argv.pretty);
 }
 
 // ---------- 子命令：filter ----------
 
 async function runFilter(rawArgv: string[]) {
   const argv = minimist(rawArgv, {
-    string: ["format", "key-match", "path-glob"],
-    boolean: ["help", "pretty", "jsonl"],
+    string: ["format", "key-match", "path-glob", "root", "glob", "ext", "on-error"],
+    boolean: ["help", "pretty", "jsonl", "no-recurse"],
     alias: { h: "help", f: "format", p: "pretty" },
-    default: { format: "json", "key-match": "", "path-glob": "", "max-depth": 32, limit: 50 },
+    default: { format: "json", "key-match": "", "path-glob": "", "max-depth": 32, limit: 50, "max-files": 100, "on-error": "skip" },
   });
   if (argv.help) { printHelp("filter"); return; }
   const format = argv.format as string;
@@ -537,17 +602,12 @@ async function runFilter(rawArgv: string[]) {
     return;
   }
 
-  const loadArgv = { ...argv, _: file ? [file] : [] };
-  const data = await loadInput(loadArgv);
-  const result = filterJSON(data, filterOpts);
-
-  if (result.matches.length === 0) {
+  const resolveArgv = { ...argv, _: argv.glob ? [] : file ? [file] : [] };
+  const { targets } = await resolveTargetsFromArgv(resolveArgv);
+  const totalHits = await runFilterOnTargets(targets, onErrorMode(argv), filterOpts, format, !!argv.pretty);
+  if (totalHits === 0) {
     console.error("no match");
     process.exitCode = 2;
-  }
-  outputResult(result.matches, format, !!argv.pretty);
-  if (result.truncated) {
-    console.error(`... truncated to ${result.matches.length} matches (use --limit to increase)`);
   }
 }
 
@@ -555,10 +615,10 @@ async function runFilter(rawArgv: string[]) {
 
 async function runSummary(rawArgv: string[]) {
   const argv = minimist(rawArgv, {
-    string: ["format"],
-    boolean: ["help", "pretty", "jsonl"],
+    string: ["format", "root", "glob", "ext", "on-error"],
+    boolean: ["help", "pretty", "jsonl", "no-recurse"],
     alias: { h: "help", f: "format" },
-    default: { format: "md" },
+    default: { format: "md", "max-files": 100, "on-error": "skip" },
   });
   if (argv.help) { printHelp("summary"); return; }
   const format = argv.format as string;
@@ -588,27 +648,8 @@ async function runSummary(rawArgv: string[]) {
     return;
   }
 
-  const data = await loadInput(argv);
-  const schema = analyzeJSON(data);
-  const summary = summarizeSchema(schema);
-  const compact = compactSchema(schema);
-
-  if (format === "md") {
-    console.log(`## Structure\n\n\`${compact}\`\n`);
-    console.log(`## Summary\n`);
-    console.log(`- total nodes: ${summary.totalNodes}`);
-    console.log(`- max depth: ${summary.maxDepth}`);
-    console.log(`- arrays: ${summary.arraysCount} (${summary.emptyArrays} empty, ${summary.truncatedArrays} truncated)`);
-    console.log(`- objects: ${summary.objectsCount} (${summary.truncatedObjects} truncated)`);
-    console.log(`- mixed fields: ${summary.mixedFields}`);
-    console.log(`- long-text fields: ${summary.longTextFields}`);
-    const leafInfo = Object.entries(summary.leafTypes)
-      .map(([k, v]) => `\`${k}\`(${v})`)
-      .join(", ");
-    if (leafInfo) console.log(`- leaf types: ${leafInfo}`);
-  } else {
-    outputResult({ compact, summary }, "json", !!argv.pretty);
-  }
+  const { targets } = await resolveTargetsFromArgv(argv);
+  await runSummaryOnTargets(targets, onErrorMode(argv), format, !!argv.pretty);
 }
 
 // ---------- 子命令：get ----------
@@ -665,8 +706,10 @@ async function runGet(rawArgv: string[]) {
     return;
   }
 
-  const loadArgv = { ...argv, _: file ? [file] : [] };
-  const data = await loadInput(loadArgv);
+  const resolveArgv = { ...argv, _: file ? [file] : [] };
+  const { targets } = await resolveTargetsFromArgv(resolveArgv);
+  assertSingleInputTarget(targets, "get");
+  const data = await readJsonFromTarget(targets[0]);
   const values = getByPath(data, path, { limit });
 
   // 当结果为空, 尝试诊断路径问题
@@ -737,8 +780,10 @@ async function runExplore(rawArgv: string[]) {
     return;
   }
 
-  const loadArgv = { ...argv, _: file ? [file] : [] };
-  const data = await loadInput(loadArgv);
+  const resolveArgv = { ...argv, _: file ? [file] : [] };
+  const { targets } = await resolveTargetsFromArgv(resolveArgv);
+  assertSingleInputTarget(targets, "explore");
+  const data = await readJsonFromTarget(targets[0]);
 
   // --keys: 列出 object 节点的 key 列表
   if (argv.keys) {
@@ -782,10 +827,10 @@ async function runExplore(rawArgv: string[]) {
 
 async function runSearch(rawArgv: string[]) {
   const argv = minimist(rawArgv, {
-    string: ["format", "path-glob"],
-    boolean: ["help", "pretty", "key-only", "value-only", "jsonl"],
+    string: ["format", "path-glob", "root", "glob", "ext", "on-error"],
+    boolean: ["help", "pretty", "key-only", "value-only", "jsonl", "no-recurse"],
     alias: { h: "help", f: "format", p: "pretty" },
-    default: { format: "md", "path-glob": "", "max-depth": 32, limit: 50 },
+    default: { format: "md", "path-glob": "", "max-depth": 32, limit: 50, "max-files": 100, "on-error": "skip" },
   });
   if (argv.help) { printHelp("search"); return; }
   const format = argv.format as string;
@@ -835,17 +880,12 @@ async function runSearch(rawArgv: string[]) {
     return;
   }
 
-  const loadArgv = { ...argv, _: file ? [file] : [] };
-  const data = await loadInput(loadArgv);
-  const result = searchJSON(data, searchOpts);
-
-  if (result.matches.length === 0) {
+  const resolveArgv = { ...argv, _: argv.glob ? [] : file ? [file] : [] };
+  const { targets } = await resolveTargetsFromArgv(resolveArgv);
+  const totalHits = await runSearchOnTargets(targets, onErrorMode(argv), searchOpts, format);
+  if (totalHits === 0) {
     console.error("no match");
     process.exitCode = 2;
-  }
-  outputResult(result.matches, format, !!argv.pretty);
-  if (result.truncated) {
-    console.error(`... truncated to ${result.matches.length} matches (use --limit to increase)`);
   }
 }
 
@@ -887,8 +927,10 @@ async function runCompare(rawArgv: string[]) {
 
   const format = argv.format as string;
   if (!["md-table", "json"].includes(format)) throw new Error(`unknown format "${format}", expected "md-table"|"json"`);
-  const loadArgv = { ...argv, _: file ? [file] : [] };
-  const data = await loadInput(loadArgv);
+  const resolveArgv = { ...argv, _: file ? [file] : [] };
+  const { targets } = await resolveTargetsFromArgv(resolveArgv);
+  assertSingleInputTarget(targets, "compare");
+  const data = await readJsonFromTarget(targets[0]);
   const limit = Number(argv.limit) || 10;
   const fieldStr = argv.fields as string | undefined;
   const fields = fieldStr ? fieldStr.split(",").map((s) => s.trim()) : null;
