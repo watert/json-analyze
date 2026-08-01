@@ -1,13 +1,14 @@
 # json-analyze
 
-> ⚠️ 本包仅供 monorepo 内部使用，不发布到 npm。TypeScript 源文件直接通过 `src/index.ts` 引用，无编译产物。
+> TypeScript 源码直出，无编译产物；库调用直接引入 `src/index.ts`。
 
 JSON Schema Analyzer — 将任意 JSON 数据转换为扁平化 schema 数组，支持 Markdown / JSON 输出。v2 新增循环引用检测、规模控制、路径提取、字段探索、摘要压缩等能力。**JSONL**：检索类子命令真流式；`analyze --jsonl` 默认合并 DESCRIBE（`--max-lines` 默认 50000，超大用 `--per-line`）。CLI 在 `src/cli/`。
 
 ## 安装
 
 ```bash
-cd packages/json-analyze
+git clone https://github.com/watert/json-analyze.git
+cd json-analyze
 bun install
 ```
 
