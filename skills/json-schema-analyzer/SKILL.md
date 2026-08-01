@@ -1,7 +1,8 @@
 ---
 name: json-schema-analyzer
 description: Analyze arbitrary JSON data and convert it into a flattened schema array, or filter/query JSON content with auto-inferred types. v2.2 adds cross-node wildcard (*/[] on dict), filter expressions ([?key~pattern]), path diagnostics (getClosestKeys), and multi-path comparison (compare). v2.3 adds JSONL streaming protocol — async generator based parseJSONL/analyzeJSONL/filterJSONL/searchJSONL with zero-copy line splitting for arbitrary-size JSONL files. Triggers when the user needs to understand JSON structure, find data by pattern, compare values across paths, get a compact schema digest for LLM prompt injection, or stream-process JSONL files.
-version: 2.7.0
+metadata:
+  version: 2.7.0
 ---
 
 # json-analyze — JSON Schema Analyzer & Filter v2.7
