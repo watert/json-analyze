@@ -5,6 +5,13 @@
   "main": "src/index.ts",
   "bin": "bin/json-analyze",
   "description": "JSON Schema Analyzer - 将任意 JSON 转换为扁平化 schema 数组",
+  "license": "MIT",
+  "author": "waterwu <boatwind@gmail.com>",
+  "repository": { "type": "git", "url": "git+https://github.com/watert/json-analyze.git" },
+  "homepage": "https://github.com/watert/json-analyze#readme",
+  "keywords": ["json", "schema", "analyzer", "jsonl", "cli", "bun"],
+  "engines": { "bun": ">=1.2.0" },
+  "files": ["bin", "src", "skills", "!**/*.test.ts"],
   "scripts": {
     "check": "bunx tsc --noEmit --project tsconfig.json",
     "test": "bunx vitest run --watch=false",

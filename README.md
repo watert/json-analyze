@@ -7,6 +7,13 @@ JSON Schema Analyzer — 将任意 JSON 数据转换为扁平化 schema 数组�
 ## 安装
 
 ```bash
+# 一行流: 免安装直接跑 (需要 bun)
+bunx json-analyze --help
+
+# 或全局安装
+bun install -g json-analyze
+
+# 源码方式
 git clone https://github.com/watert/json-analyze.git
 cd json-analyze
 bun install
