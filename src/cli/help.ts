@@ -43,7 +43,7 @@ Run 'json-analyze <command> --help' for command-specific help.
        cat file.jsonl | json-analyze analyze --jsonl [options]
 
 Options:
-  -f, --format   输出格式: md | md-flat | json (默认: md，紧凑语义 tag)
+  -f, --format   输出格式: md | md-flat | tree | xml | json (默认: md，紧凑语义 tag)
   -p, --pretty   与 --format json 配合时美化输出
       --jsonl         JSONL: 默认合并为大数组 schema (全量内存, 见 --max-lines)
       --per-line      JSONL 逐行 schema (大文件/调试)

@@ -2,6 +2,7 @@
 import minimist from "minimist";
 import { analyzeJSON } from "../analyzer.js";
 import { renderAnalyzeMarkdown } from "../format.js";
+import { renderTreeMarkdown } from "../format-tree.js";
 import { globToRegex } from "../filter.js";
 import { splitPath } from "../path-utils.js";
 import { readJsonFromTarget } from "../io.js";
@@ -42,9 +43,11 @@ export async function runAnalyze(rawArgv: string[]) {
     return;
   }
   const format = argv.format as string;
-  const analyzeFormats = ["md", "md-flat", "json"];
+  const analyzeFormats = ["md", "md-flat", "tree", "xml", "json"];
   if (!analyzeFormats.includes(format)) throw new Error(`unknown format "${format}", expected ${analyzeFormats.join("|")}`);
   const mdOut = format !== "json";
+  // tree / xml: 两层级语义 tag 输出（format-tree.ts），xml 为 tree 的同义别名
+  const treeLike = format === "tree" || format === "xml";
   const analyzeOpts = {
     maxDepth: Number(argv["max-depth"]) || 32,
     maxArrayItems: Number(argv["max-items"]) || 5000,
@@ -55,9 +58,10 @@ export async function runAnalyze(rawArgv: string[]) {
     const source = await loadJSONLInput(argv);
     if (argv["per-line"]) {
       for await (const { line, result: schema } of analyzeJSONL(source, analyzeOpts)) {
-        if (format === "md") {
+        if (format === "md" || treeLike) {
           console.log(`### line ${line}\n`);
-          console.log(renderAnalyzeMarkdown(schema, format as "md" | "md-flat"));
+          if (treeLike) console.log(renderTreeMarkdown(schema));
+          else console.log(renderAnalyzeMarkdown(schema, format as "md" | "md-flat"));
           console.log("");
         } else {
           console.log(JSON.stringify({ line, schema }));
@@ -80,7 +84,8 @@ export async function runAnalyze(rawArgv: string[]) {
     const schema = analyzeJSON(items, analyzeOpts);
     if (mdOut) {
       console.log(`> JSONL: ${totalLines} lines treated as one array of items (merge mode, max-lines ${maxLines})\n`);
-      console.log(renderAnalyzeMarkdown(schema, format as "md" | "md-flat"));
+      if (treeLike) console.log(renderTreeMarkdown(schema));
+      else console.log(renderAnalyzeMarkdown(schema, format as "md" | "md-flat"));
     } else {
       outputResult({ totalLines, items: items.length, schema }, "json", !!argv.pretty);
     }
@@ -117,7 +122,7 @@ export async function runAnalyze(rawArgv: string[]) {
       objects = objects.filter((o) => splitPath(o.path).length === minDepth);
     }
 
-    if (format === "md") {
+    if (format === "md" || treeLike) {
       for (const obj of objects) {
         const depth = splitPath(obj.path).length;
         const indent = "  ".repeat(Math.max(0, depth - 1));

@@ -3,6 +3,7 @@ import { analyzeJSON } from "./analyzer.js";
 import { filterJSON, searchJSON, type FilterOptions, type SearchOptions } from "./filter.js";
 import { filterSchemaByPathPrefix } from "./analyze-detail-budget.js";
 import { renderAnalyzeMarkdown, type AnalyzeMdFormat } from "./format.js";
+import { renderTreeMarkdown } from "./format-tree.js";
 import type { GroupedRenderOptions } from "./format-grouped.js";
 import { readJsonFromTarget } from "./io.js";
 import { isStdinTarget, type InputTarget } from "./input-resolve.js";
@@ -46,13 +47,18 @@ export async function runAnalyzeOnTargets(
   const multi = targets.length > 1;
   await forEachJsonFile(targets, mode, (label, data) => {
     const schema = analyzeJSON(data, analyzeOpts);
-    const mdLike = format === "md" || format === "md-flat";
+    const mdLike = format === "md" || format === "md-flat" || format === "tree" || format === "xml";
     if (multi && mdLike) console.log(`## ${label}\n`);
     if (listKeysHandler) {
       listKeysHandler(schema, label);
       return;
     }
     if (mdLike) {
+      if (format === "tree" || format === "xml") {
+        const items = renderOpts?.pathPrefix ? filterSchemaByPathPrefix(schema, renderOpts.pathPrefix) : schema;
+        console.log(renderTreeMarkdown(items));
+        return;
+      }
       if (renderOpts?.pathPrefix) {
         console.log(renderAnalyzeMarkdown(filterSchemaByPathPrefix(schema, renderOpts.pathPrefix), "md-flat"));
         return;
