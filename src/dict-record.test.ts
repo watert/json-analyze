@@ -1,7 +1,4 @@
 import { describe, expect, it } from "vitest";
-import { readFileSync } from "fs";
-import { homedir } from "os";
-import { join } from "path";
 import { analyzeJSON } from "./analyzer.js";
 import {
   detectHomogeneousRecord,
@@ -62,9 +59,13 @@ describe("dict-record", () => {
     expect(compactSchema(schema)).toContain("Record<string");
   });
 
-  it("629 fixture: articles record、users record", () => {
-    const p = join(homedir(), "docs/scripts/state-data/zhihu-my-answers-state--260629.json");
-    const data = JSON.parse(readFileSync(p, "utf8"));
+  it("小样本 record: articles / users 不逐 id 展开", () => {
+    // 原 629 fixture 依赖 ~/docs 真实文件, 改为同构内联数据 (articles 5 篇小样本, users 11 常规)
+    const articles: Record<string, object> = {};
+    for (let i = 0; i < 5; i++) articles[`${i}`] = { id: i, title: `t${i}`, excerpt: `e${i}`, content: `c${i}`, url_token: `a${i}` };
+    const users: Record<string, object> = {};
+    for (let i = 0; i < 11; i++) users[`${10000000 + i}`] = { id: i, name: `n${i}`, url_token: `u${i}` };
+    const data = { entities: { articles, users, answers: { a1: { id: 1, n: "x" } } } };
     const schema = analyzeJSON(data);
     expect(schema.find((s) => s.path === "root.entities.articles" && s.type === "record")).toBeDefined();
     expect(schema.filter((s) => /^root\.entities\.articles\.\d+/.test(s.path)).length).toBe(0);
