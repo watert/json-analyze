@@ -195,6 +195,23 @@ renderAnalyzeMarkdown(schema, "md-flat");
 
 **Record 检测 (v2.5+)**：小样本高 overlap、`v2[hex]`、**walkMergedValues** 合并多样本、`标量同质 map`（`recordMinValues` 等）。629 fixture：`articles` / `users` record 见 `dict-record.test.ts`。
 
+## `stringifyInlineArrays(data, opts?): string` (v2.8)
+
+指定 `keys` 或 `paths` 的数组每个元素一行，其余按 `space`（默认 2）缩进。输出带末尾换行，`JSON.parse` 后与 plain JSON 数据一致。
+
+- `keys`: 按 key 名全局匹配，嵌套同名 key 一起压，命中后不再下钻
+- `paths`: 语法同 `getByPath`（`root.a`、`a[].b`、`*.a`、`a[0].b`、`root["a.b"]`）。只压路径正好落到的那个数组。不支持 `[?filter]`
+- 两者都给时取并集。都不给则抛
+- 未压到的 `Date` / class 抛错。压中元素里的 `undefined`、function、symbol、数组空洞抛错
+- 空数组写成 `[]`
+
+```typescript
+import { stringifyInlineArrays } from "json-analyze";
+
+stringifyInlineArrays(data, { keys: ["chapters"] });
+stringifyInlineArrays(data, { paths: ["root.books[].chapters"], space: 2 });
+```
+
 ## JSONL 流式 API (v2.3 新增)
 
 **核心：所有 JSONL 函数返回 `AsyncGenerator`，自然处理背压、不累积内存。**

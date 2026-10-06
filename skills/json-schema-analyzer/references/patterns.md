@@ -91,3 +91,20 @@ json-analyze compare \
   '*.models["mimo-v2-flash"].cost' \
   data.json --fields 'input,output,cache_read'
 ```
+
+## 模式 12 (v2.8): 长数组每条记录一行
+
+```typescript
+import { stringifyInlineArrays } from "json-analyze";
+
+// 章列表一行一章, 章内的 tags 数组跟着压进同一行, 仍是数组
+const text = stringifyInlineArrays(data, { keys: ["chapters"] });
+
+// 只压顶层, 放过 book.chapters
+stringifyInlineArrays(data, { paths: ["root.chapters"] });
+```
+
+```bash
+json-analyze stringify stats.json --keys chapters
+json-analyze stringify stats.json --paths 'root.books[].chapters'
+```

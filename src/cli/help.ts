@@ -3,7 +3,7 @@ import type { SubCommand } from "./constants.js";
 
 export function printHelp(cmd?: SubCommand) {
   if (!cmd || cmd === "help") {
-    console.log(`json-analyze — JSON 工具集 v2.7
+    console.log(`json-analyze — JSON 工具集 v2.8
 
 Usage:
   json-analyze [file|dir|glob]     # 默认 Overview；目录/glob 多文件
@@ -26,6 +26,7 @@ Commands:
   search     递归搜索 key / value (grep for JSON)
   compare    多路径取值对比, 输出 markdown table
   diff       双 JSON 文件对比 (AI Friendly, 50KB digest)
+  stringify  指定数组每元素一行, 其余保持缩进 (stdout)
   help       显示帮助
 
 JSONL:
@@ -200,6 +201,28 @@ Options:
 
 例:
   json-analyze diff a.json b.json --path-prefix root.entities --dict-key-only
+`);
+    return;
+  }
+  if (cmd === "stringify") {
+    console.log(`Usage: json-analyze stringify [file] [options]
+       cat file.json | json-analyze stringify --keys chapters
+
+把指定数组重排成每个元素一行, 其余结构保持缩进。结果仍是合法 JSON, 写到 stdout。
+
+Options:
+      --keys    按 key 名全局匹配, 逗号分隔或重复该参数
+      --paths   按路径匹配 (同 getByPath)。支持 root.a / a[].b / *.a / root["a.b"] / a[0].b
+      --space   其余结构的缩进, 默认 2
+  -h, --help
+
+至少给 --keys 或 --paths 之一。--paths 含 [] 时请重复参数, 不要用逗号拼接。
+不支持 [?filter]。未命中的 Date / class 会报错。
+
+例:
+  json-analyze stringify data.json --keys chapters
+  json-analyze stringify data.json --paths 'root.books[].chapters'
+  json-analyze stringify data.json --paths 'root.chapters' --paths 'root.notes'
 `);
   }
 }

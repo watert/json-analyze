@@ -11,6 +11,7 @@ import { runExplore } from "./run-explore.js";
 import { runSearch } from "./run-search.js";
 import { runCompare } from "./run-compare.js";
 import { runDiff } from "./run-diff.js";
+import { runStringify } from "./run-stringify.js";
 
 export async function runCli(argvList: string[]) {
   const argv = minimist(argvList, {
@@ -44,4 +45,5 @@ export async function runCli(argvList: string[]) {
   if (cmd === "search") return runSearch(rest);
   if (cmd === "compare") return runCompare(rest);
   if (cmd === "diff") return runDiff(rest);
+  if (cmd === "stringify") return runStringify(rest);
 }

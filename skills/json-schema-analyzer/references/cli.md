@@ -46,7 +46,13 @@ json-analyze explore 'items[].role' data.json
 json-analyze explore 'users[].role' data.json --cardinality
 json-analyze explore 'root' data.json --keys              # v2.1: 列出 object key
 
-# JSONL 流式模式 (v2.3): 所有子命令支持 --jsonl
+# stringify (v2.8): 指定数组每元素一行, stdout, 不改原文件
+json-analyze stringify data.json --keys chapters
+json-analyze stringify data.json --paths 'root.books[].chapters'
+json-analyze stringify data.json --paths 'root.chapters' --paths 'root.notes'
+cat data.json | json-analyze stringify --keys items
+
+# JSONL 流式模式 (v2.3): 分析类子命令支持 --jsonl (stringify 除外)
 cat huge.jsonl | json-analyze analyze --jsonl       # 默认: 大数组合并 schema (含 presence)
 cat huge.jsonl | json-analyze analyze --jsonl --per-line  # 逐行 schema (高级 / GB 级)
 cat huge.jsonl | json-analyze filter --jsonl id=foo  # 命中行立即输出 (per-line)

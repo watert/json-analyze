@@ -51,7 +51,7 @@ console.log(compactSchema(schema));
 
 单一入口 `json-analyze`。**无子命令**时输出 **Overview**（多 section 体检报告 + 各段底部 drill-down 命令）；深度模式用子命令。
 
-子命令：`analyze` | `filter` | `summary` | `get` | `explore` | `search` | `compare` | `diff` | `help`
+子命令：`analyze` | `filter` | `summary` | `get` | `explore` | `search` | `compare` | `diff` | `stringify` | `help`
 
 #### 默认 Overview
 
@@ -151,6 +151,27 @@ json-analyze explore 'users[].role' data.json --cardinality
 # 不去重
 json-analyze explore 'users[].role' data.json --no-distinct
 ```
+
+#### `stringify` — 长数组每元素一行 (v2.8)
+
+指定 `keys` 或 `paths` 的数组，每个元素 `JSON.stringify` 成一行，其余结构保持缩进。输出仍是合法 JSON，`JSON.parse` 回来结构不变。写到 stdout，不改原文件。
+
+`keys` 按 key 名全局匹配。`paths` 用和 `getByPath` 一样的路径，只压命中的那个数组，同名嵌套可以放过。不支持 `[?filter]`。
+
+```bash
+json-analyze stringify data.json --keys chapters
+json-analyze stringify data.json --paths 'root.books[].chapters'
+cat data.json | json-analyze stringify --keys items --space 2
+```
+
+```typescript
+import { stringifyInlineArrays } from "json-analyze";
+
+stringifyInlineArrays(data, { keys: ["chapters"] });
+stringifyInlineArrays(data, { paths: ["root.books[].chapters"] });
+```
+
+未压到的 `Date` / class 会抛（避免被收成 `{}`）。压中数组里的 `undefined`、function、空洞也会抛。
 
 ## API 完整列表
 

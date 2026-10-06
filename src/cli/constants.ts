@@ -8,6 +8,7 @@ export const SUB_COMMANDS = [
   "search",
   "compare",
   "diff",
+  "stringify",
   "help",
 ] as const;
 
