@@ -195,21 +195,26 @@ renderAnalyzeMarkdown(schema, "md-flat");
 
 **Record 检测 (v2.5+)**：小样本高 overlap、`v2[hex]`、**walkMergedValues** 合并多样本、`标量同质 map`（`recordMinValues` 等）。629 fixture：`articles` / `users` record 见 `dict-record.test.ts`。
 
-## `stringifyInlineArrays(data, opts?): string` (v2.8)
+## `stringifyInlineArrays(data, opts?): string` (v2.9)
 
-指定 `keys` 或 `paths` 的数组每个元素一行，其余按 `space`（默认 2）缩进。输出带末尾换行，`JSON.parse` 后与 plain JSON 数据一致。
+指定 `keys` / `paths`，或 `auto: true`，把命中的数组收成每个元素一行，其余按 `space`（默认 2）缩进。输出带末尾换行，`JSON.parse` 后与 plain JSON 数据一致。
 
 - `keys`: 按 key 名全局匹配，嵌套同名 key 一起压，命中后不再下钻
 - `paths`: 语法同 `getByPath`（`root.a`、`a[].b`、`*.a`、`a[0].b`、`root["a.b"]`）。只压路径正好落到的那个数组。不支持 `[?filter]`
-- 两者都给时取并集。都不给则抛
+- `auto`: 元素数 >= 4，元素里有对象或数组，估算展开行数 >= 24，且大于压后行数的 1.5 倍。标量数组不压。短的父数组会放过，里面够长的子数组仍会压
+- 三者取并集。显式命中记为 `key` / `path`，自动命中记为 `auto`。都不给则抛
 - 未压到的 `Date` / class 抛错。压中元素里的 `undefined`、function、symbol、数组空洞抛错
 - 空数组写成 `[]`
 
+`planInlineArrays(data, opts?)` 用同一套判定，返回 `{ path, items, prettyLines, inlineLines, reason }[]`，不拼文本。
+
 ```typescript
-import { stringifyInlineArrays } from "json-analyze";
+import { stringifyInlineArrays, planInlineArrays } from "json-analyze";
 
 stringifyInlineArrays(data, { keys: ["chapters"] });
 stringifyInlineArrays(data, { paths: ["root.books[].chapters"], space: 2 });
+stringifyInlineArrays(data, { auto: true });
+planInlineArrays(data, { auto: true });
 ```
 
 ## JSONL 流式 API (v2.3 新增)

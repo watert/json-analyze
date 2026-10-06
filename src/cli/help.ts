@@ -3,7 +3,7 @@ import type { SubCommand } from "./constants.js";
 
 export function printHelp(cmd?: SubCommand) {
   if (!cmd || cmd === "help") {
-    console.log(`json-analyze — JSON 工具集 v2.8
+    console.log(`json-analyze — JSON 工具集 v2.9
 
 Usage:
   json-analyze [file|dir|glob]     # 默认 Overview；目录/glob 多文件
@@ -211,18 +211,22 @@ Options:
 把指定数组重排成每个元素一行, 其余结构保持缩进。结果仍是合法 JSON, 写到 stdout。
 
 Options:
-      --keys    按 key 名全局匹配, 逗号分隔或重复该参数
-      --paths   按路径匹配 (同 getByPath)。支持 root.a / a[].b / *.a / root["a.b"] / a[0].b
-      --space   其余结构的缩进, 默认 2
+      --keys     按 key 名全局匹配, 逗号分隔或重复该参数
+      --paths    按路径匹配 (同 getByPath)。支持 root.a / a[].b / *.a / root["a.b"] / a[0].b
+      --auto     展开明显更长的对象数组自动压。元素数 >= 4, 展开 >= 24 行且超过压后的 1.5 倍
+      --dry-run  只打印会压哪些 path, 不输出 JSON
+      --space    其余结构的缩进, 默认 2
   -h, --help
 
-至少给 --keys 或 --paths 之一。--paths 含 [] 时请重复参数, 不要用逗号拼接。
-不支持 [?filter]。未命中的 Date / class 会报错。
+至少给 --keys、--paths 或 --auto 之一。三者取并集, 显式命中优先记为 key/path。
+--paths 含 [] 时请重复参数, 不要用逗号拼接。不支持 [?filter]。
+未命中的 Date / class 会报错。标量数组不会被 auto 压。
 
 例:
   json-analyze stringify data.json --keys chapters
   json-analyze stringify data.json --paths 'root.books[].chapters'
-  json-analyze stringify data.json --paths 'root.chapters' --paths 'root.notes'
+  json-analyze stringify data.json --auto
+  json-analyze stringify data.json --auto --dry-run
 `);
   }
 }

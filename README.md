@@ -7,16 +7,15 @@ JSON Schema Analyzer — 将任意 JSON 数据转换为扁平化 schema 数组�
 ## 安装
 
 ```bash
-# 一行流: 免安装直接跑 (需要 bun)
-bunx json-analyze --help
-
-# 或全局安装
-bun install -g json-analyze
-
-# 源码方式
+# 源码链到本机后, 任意目录都能 bunx (npm 上还没有这个包)
 git clone https://github.com/watert/json-analyze.git
 cd json-analyze
 bun install
+bun link
+
+bunx json-analyze --help
+bunx json-analyze stringify data.json --keys chapters
+bunx json-analyze stringify data.json --auto --dry-run
 ```
 
 ## 使用方式
@@ -152,23 +151,28 @@ json-analyze explore 'users[].role' data.json --cardinality
 json-analyze explore 'users[].role' data.json --no-distinct
 ```
 
-#### `stringify` — 长数组每元素一行 (v2.8)
+#### `stringify` — 长数组每元素一行 (v2.9)
 
 指定 `keys` 或 `paths` 的数组，每个元素 `JSON.stringify` 成一行，其余结构保持缩进。输出仍是合法 JSON，`JSON.parse` 回来结构不变。写到 stdout，不改原文件。
 
 `keys` 按 key 名全局匹配。`paths` 用和 `getByPath` 一样的路径，只压命中的那个数组，同名嵌套可以放过。不支持 `[?filter]`。
 
+`--auto` 自己估展开行数：元素数不少于 4、里面有对象或数组、展开不少于 24 行、并且超过压后行数的 1.5 倍，才压。标量数组不压。命中后不再下钻，所以内层小数组会并进父元素那一行。`--auto` 与 `keys` / `paths` 取并集。`--dry-run` 只打印会压的 path。
+
 ```bash
 json-analyze stringify data.json --keys chapters
 json-analyze stringify data.json --paths 'root.books[].chapters'
-cat data.json | json-analyze stringify --keys items --space 2
+json-analyze stringify data.json --auto
+json-analyze stringify data.json --auto --dry-run
 ```
 
 ```typescript
-import { stringifyInlineArrays } from "json-analyze";
+import { stringifyInlineArrays, planInlineArrays } from "json-analyze";
 
 stringifyInlineArrays(data, { keys: ["chapters"] });
 stringifyInlineArrays(data, { paths: ["root.books[].chapters"] });
+stringifyInlineArrays(data, { auto: true });
+planInlineArrays(data, { auto: true });
 ```
 
 未压到的 `Date` / class 会抛（避免被收成 `{}`）。压中数组里的 `undefined`、function、空洞也会抛。

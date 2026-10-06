@@ -46,10 +46,12 @@ json-analyze explore 'items[].role' data.json
 json-analyze explore 'users[].role' data.json --cardinality
 json-analyze explore 'root' data.json --keys              # v2.1: 列出 object key
 
-# stringify (v2.8): 指定数组每元素一行, stdout, 不改原文件
+# stringify (v2.9): 指定数组每元素一行, stdout, 不改原文件
 json-analyze stringify data.json --keys chapters
 json-analyze stringify data.json --paths 'root.books[].chapters'
 json-analyze stringify data.json --paths 'root.chapters' --paths 'root.notes'
+json-analyze stringify data.json --auto
+json-analyze stringify data.json --auto --dry-run
 cat data.json | json-analyze stringify --keys items
 
 # JSONL 流式模式 (v2.3): 分析类子命令支持 --jsonl (stringify 除外)

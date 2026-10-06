@@ -107,4 +107,7 @@ stringifyInlineArrays(data, { paths: ["root.chapters"] });
 ```bash
 json-analyze stringify stats.json --keys chapters
 json-analyze stringify stats.json --paths 'root.books[].chapters'
+json-analyze stringify stats.json --auto --dry-run
 ```
+
+`--auto` 在元素数 >= 4、展开行数 >= 24 且超过压后 1.5 倍时才压。标量数组保持缩进。

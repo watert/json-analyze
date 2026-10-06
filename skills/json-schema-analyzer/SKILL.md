@@ -1,11 +1,11 @@
 ---
 name: json-schema-analyzer
-description: Analyze arbitrary JSON data and convert it into a flattened schema array, or filter/query JSON content with auto-inferred types. v2.2 adds cross-node wildcard (*/[] on dict), filter expressions ([?key~pattern]), path diagnostics (getClosestKeys), and multi-path comparison (compare). v2.3 adds JSONL streaming protocol — async generator based parseJSONL/analyzeJSONL/filterJSONL/searchJSONL with zero-copy line splitting for arbitrary-size JSONL files. v2.8 adds stringifyInlineArrays and the stringify CLI: print chosen arrays one element per line (by key or path) while the rest stays indented, JSON.parse unchanged. Triggers when the user needs to understand JSON structure, find data by pattern, compare values across paths, get a compact schema digest for LLM prompt injection, stream-process JSONL files, or pretty-print long arrays as one record per line.
+description: Analyze arbitrary JSON data and convert it into a flattened schema array, or filter/query JSON content with auto-inferred types. v2.2 adds cross-node wildcard (*/[] on dict), filter expressions ([?key~pattern]), path diagnostics (getClosestKeys), and multi-path comparison (compare). v2.3 adds JSONL streaming protocol — async generator based parseJSONL/analyzeJSONL/filterJSONL/searchJSONL with zero-copy line splitting for arbitrary-size JSONL files. v2.8 adds stringifyInlineArrays and the stringify CLI: print chosen arrays one element per line (by key or path) while the rest stays indented, JSON.parse unchanged. v2.9 adds stringify --auto, which inlines object arrays whose pretty form is at least 24 lines and 1.5x the one-item-per-line form. Triggers when the user needs to understand JSON structure, find data by pattern, compare values across paths, get a compact schema digest for LLM prompt injection, stream-process JSONL files, or pretty-print long arrays as one record per line.
 metadata:
-  version: 2.8.0
+  version: 2.9.0
 ---
 
-# json-analyze — JSON Schema Analyzer & Filter v2.8
+# json-analyze — JSON Schema Analyzer & Filter v2.9
 
 `json-analyze` 是一个轻量 JSON 工具集，提供：
 
@@ -17,7 +17,7 @@ metadata:
 6. **Compare**: 多路径取值对比，输出 markdown table
 7. **Summary**: 结构摘要 + 紧凑 schema（极省 token，适合 AI 上下文）
 8. **JSONL Streaming**: 零依赖流式处理 JSONL，逐行 async generator
-9. **Stringify**: 指定 key / path 的长数组每个元素一行，其余缩进，parse 结果不变
+9. **Stringify**: 指定 key / path，或 `--auto` 按展开行数，把长数组收成每个元素一行
 
 ## 何时使用
 
@@ -48,7 +48,8 @@ metadata:
 | `compactSchema(schema)` | 生成紧凑类型字符串 |
 | `renderAnalyzeMarkdown` / `renderGroupedFlatMarkdown` | 生成 analyze Markdown 报告 |
 | `parseJSONL` / `analyzeJSONL` / `filterJSONL` / `searchJSONL` / `aggregateAnalyzeJSONL` | JSONL 流式处理 |
-| `stringifyInlineArrays(data, { keys?, paths?, space? })` | 指定数组每元素一行，其余保持缩进 |
+| `stringifyInlineArrays(data, { keys?, paths?, auto?, space? })` | 指定数组每元素一行，其余保持缩进 |
+| `planInlineArrays(data, opts?)` | 同样的判定，只返回会被压的 path |
 
 完整签名、参数、返回值与示例见 [references/api.md](references/api.md)。
 
@@ -91,6 +92,7 @@ json-analyze get 'users[].name' data.json   # 按路径提取
 json-analyze compare p1 p2 data.json        # 多路径对比
 json-analyze stringify data.json --keys chapters
 json-analyze stringify data.json --paths 'root.books[].chapters'
+json-analyze stringify data.json --auto --dry-run
 cat huge.jsonl | json-analyze analyze --jsonl
 ```
 
@@ -106,7 +108,7 @@ cat huge.jsonl | json-analyze analyze --jsonl
 - **filter query key**: 必须在 object 顶层或用点路径指向精确字段
 - **search**: pattern 为 regex（case-insensitive），不确定字段名时替代 filter
 - **JSONL 流式模式**: `--jsonl` 启用逐行 async generator，错误行默认 skip + stderr 警告；`summary --jsonl` 跨行聚合 stats
-- **stringify**: 至少给 `--keys` 或 `--paths`。`keys` 按名字全局匹配；`paths` 只压命中的数组。输出到 stdout，`JSON.parse` 不变
+- **stringify**: 至少给 `--keys`、`--paths` 或 `--auto`。`auto` 要求元素数 >= 4、含对象/数组、展开 >= 24 行且超过压后的 1.5 倍。标量数组不压。`--dry-run` 只打印决定
 - **analyze 默认 md (v2.6)**: Top 摘要 + record/group 嵌套；同质 map 不逐 entry 成节；超 50KB → 底部 ≥5 条 record-digest
 
 ## 相关文档

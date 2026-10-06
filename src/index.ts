@@ -43,8 +43,8 @@ export {
   collectJSONLForMergedAnalyze,
   DEFAULT_JSONL_MERGE_MAX_LINES,
 } from "./jsonl.js";
-export { stringifyInlineArrays } from "./stringify-inline.js";
-export type { StringifyInlineOptions } from "./stringify-inline.js";
+export { stringifyInlineArrays, planInlineArrays } from "./stringify-inline.js";
+export type { StringifyInlineOptions, InlineDecision } from "./stringify-inline.js";
 
 export type { FilterQuery, FilterOptions, FilterResult, FilterOp, SearchOptions, SearchMatch, SearchResult } from "./filter.js";
 export type {

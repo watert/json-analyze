@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { stringifyInlineArrays } from "./stringify-inline.js";
+import { planInlineArrays, stringifyInlineArrays } from "./stringify-inline.js";
 
 describe("stringifyInlineArrays", () => {
   const sample = {
@@ -87,9 +87,60 @@ describe("stringifyInlineArrays", () => {
     holes.length = 1;
     expect(() => stringifyInlineArrays({ items: holes }, { keys: ["items"] })).toThrow(/空洞/);
     expect(() => stringifyInlineArrays({ updated: new Date() }, { keys: ["items"] })).toThrow(/plain JSON/);
-    expect(() => stringifyInlineArrays({ items: [] }, {})).toThrow(/需要 keys 或 paths/);
+    expect(() => stringifyInlineArrays({ items: [] }, {})).toThrow(/需要 keys、paths 或 auto/);
     expect(() => stringifyInlineArrays({ items: [] }, { paths: ["root[?key~items]"] })).toThrow(/filter/);
     expect(() => stringifyInlineArrays({ items: [] }, { keys: ["items"], space: 1.5 })).toThrow(/space/);
+  });
+
+  function chapters(n: number) {
+    return Array.from({ length: n }, (_, i) => ({
+      id: i,
+      title: `第${i}章`,
+      tags: [{ name: "a", count: 1 }, { name: "b", count: 2 }],
+      note: "x",
+    }));
+  }
+
+  it("auto 压展开明显更长的对象数组, 命中后不下钻", () => {
+    const value = { items: chapters(4) };
+    const text = stringifyInlineArrays(value, { auto: true });
+    const lines = text.split("\n").filter((line) => line.includes("\"tags\""));
+    expect(lines).toHaveLength(4);
+    expect(lines[0]).toContain("\"tags\":[{\"name\":\"a\",\"count\":1}");
+    expect(JSON.parse(text)).toEqual(value);
+    expect(planInlineArrays(value, { auto: true })).toEqual([
+      { path: "root.items", items: 4, prettyLines: 62, inlineLines: 6, reason: "auto" },
+    ]);
+  });
+
+  it("auto 放过标量数组、不足 4 条、以及展开不够长的小对象", () => {
+    const scalars = { ids: Array.from({ length: 30 }, (_, i) => i) };
+    expect(planInlineArrays(scalars, { auto: true })).toEqual([]);
+    expect(stringifyInlineArrays(scalars, { auto: true })).toMatch(/"ids": \[\n\s+0,\n/);
+
+    expect(planInlineArrays({ items: chapters(2) }, { auto: true })).toEqual([]);
+    expect(planInlineArrays({ items: Array.from({ length: 4 }, (_, i) => ({ id: i })) }, { auto: true })).toEqual([]);
+  });
+
+  it("auto 放过短父数组, 压里面的长数组; 与 keys 取并集且显式优先", () => {
+    const nested = {
+      books: [
+        { title: "a", chapters: chapters(6) },
+        { title: "b", chapters: chapters(6) },
+      ],
+    };
+    expect(planInlineArrays(nested, { auto: true }).map((d) => d.path)).toEqual([
+      "root.books[0].chapters",
+      "root.books[1].chapters",
+    ]);
+    expect(JSON.parse(stringifyInlineArrays(nested, { auto: true }))).toEqual(nested);
+
+    const mixed = { notes: [{ id: 1 }, { id: 2 }], items: chapters(4) };
+    expect(planInlineArrays(mixed, { auto: true, keys: ["notes"] }).map((d) => `${d.path}:${d.reason}`)).toEqual([
+      "root.notes:key",
+      "root.items:auto",
+    ]);
+    expect(planInlineArrays({ items: chapters(4) }, { auto: true, keys: ["items"] })[0].reason).toBe("key");
   });
 
   it("压中的 Date 元素走 JSON.stringify", () => {
